@@ -1,0 +1,27 @@
+# ── Go build artefacts ────────────────────────────────────────────────────────
+/go-sdk
+*.exe
+*.test
+*.out
+
+# Go test cache and coverage
+/vendor/
+.cache/
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ── wasm-wrappers ─────────────────────────────────────────────────────────────
+# Build output from wasm-pack (Rust → WASM). The compiled binary is checked in
+# at wasm/wasm_wrappers_bg.wasm and embedded via //go:embed; the rest is not
+# needed by Go consumers.
+wasm-wrappers/
+
+# ── wiki ──────────────────────────────────────────────────────────────────────
+# Mintlayer upstream documentation. Kept locally for reference but not part of
+# this module.
+wiki/

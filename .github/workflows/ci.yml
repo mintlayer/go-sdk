@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Build and vet ────────────────────────────────────────────────────────────
+  build:
+    name: Build & vet
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.21", "1.22", "1.23"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Vet (excluding pre-existing unsafe.Pointer in wasm internals)
+        run: go vet $(go list ./... | grep -v 'go-sdk/wasm$')
+
+  # ── Per-package test jobs ────────────────────────────────────────────────────
+  test-node:
+    name: Test / node
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+      - run: go test -v -count=1 -race ./node/...
+
+  test-indexer:
+    name: Test / indexer
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+      - run: go test -v -count=1 -race ./indexer/...
+
+  test-wallet:
+    name: Test / wallet
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+      - run: go test -v -count=1 -race ./wallet/...
+
+  test-wasm:
+    name: Test / wasm
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+      # WASM init takes ~400 ms per test; -parallel 1 avoids multiple runtimes
+      # competing for memory. -timeout guards against infinite hangs.
+      - run: go test -v -count=1 -timeout 120s -parallel 1 ./wasm/...
+
+  # ── All tests passed ─────────────────────────────────────────────────────────
+  all-tests:
+    name: All tests passed
+    runs-on: ubuntu-latest
+    needs: [test-node, test-indexer, test-wallet, test-wasm]
+    steps:
+      - run: echo "All jobs green"
