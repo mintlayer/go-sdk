@@ -840,3 +840,61 @@ func TestPageOpts_ZeroValues_NoParams(t *testing.T) {
 		t.Errorf("expected no pagination params for zero PageOpts, got %q", gotURI)
 	}
 }
+
+// --- String-encoded integer fields (API returns quoted numbers) ---
+
+func rawHandler(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func TestPool_MarginRatio_StringForm(t *testing.T) {
+	raw := `[{"pool_id":"mpool1abc","decommission_destination":"","staker_balance":{"atoms":"0","decimal":"0"},"margin_ratio_per_thousand":"10","cost_per_block":{"atoms":"0","decimal":"0"},"vrf_public_key":"","delegations_balance":{"atoms":"0","decimal":"0"}}]`
+	srv := rawHandler(t, raw)
+	defer srv.Close()
+
+	c := indexer.New(srv.URL)
+	got, err := c.ListPools(context.Background(), indexer.PoolListOpts{})
+	if err != nil {
+		t.Fatalf("ListPools: %v", err)
+	}
+	if got[0].MarginRatioPerThousand != 10 {
+		t.Errorf("expected 10, got %d", got[0].MarginRatioPerThousand)
+	}
+}
+
+func TestDelegation_NextNonce_StringForm(t *testing.T) {
+	raw := `{"delegation_id":"mdelg1abc","pool_id":"mpool1xyz","next_nonce":"7","spend_destination":"mtc1dest","balance":{"atoms":"0","decimal":"0"},"creation_block_height":"10000"}`
+	srv := rawHandler(t, raw)
+	defer srv.Close()
+
+	c := indexer.New(srv.URL)
+	got, err := c.GetDelegation(context.Background(), "mdelg1abc")
+	if err != nil {
+		t.Fatalf("GetDelegation: %v", err)
+	}
+	if got.NextNonce != 7 {
+		t.Errorf("expected nonce 7, got %d", got.NextNonce)
+	}
+	if got.CreationBlockHeight != 10000 {
+		t.Errorf("expected height 10000, got %d", got.CreationBlockHeight)
+	}
+}
+
+func TestOrder_Nonce_StringForm(t *testing.T) {
+	raw := `{"order_id":"mord1abc","conclude_destination":"","give_currency":{},"initially_given":{"atoms":"0","decimal":"0"},"give_balance":{"atoms":"0","decimal":"0"},"ask_currency":{},"initially_asked":{"atoms":"0","decimal":"0"},"ask_balance":{"atoms":"0","decimal":"0"},"nonce":"5"}`
+	srv := rawHandler(t, raw)
+	defer srv.Close()
+
+	c := indexer.New(srv.URL)
+	got, err := c.GetOrder(context.Background(), "mord1abc")
+	if err != nil {
+		t.Fatalf("GetOrder: %v", err)
+	}
+	if got.Nonce != 5 {
+		t.Errorf("expected nonce 5, got %d", got.Nonce)
+	}
+}

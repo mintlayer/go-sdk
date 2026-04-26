@@ -129,7 +129,7 @@ type UTXO struct {
 type DelegationInfo struct {
 	DelegationID     string `json:"delegation_id"`
 	PoolID           string `json:"pool_id"`
-	NextNonce        uint64 `json:"next_nonce"`
+	NextNonce        Uint64 `json:"next_nonce"`
 	SpendDestination string `json:"spend_destination"`
 	Balance          Amount `json:"balance"`
 }
@@ -139,7 +139,7 @@ type Pool struct {
 	PoolID                  string `json:"pool_id"`
 	DecommissionDestination string `json:"decommission_destination"`
 	StakerBalance           Amount `json:"staker_balance"`
-	MarginRatioPerThousand  uint32 `json:"margin_ratio_per_thousand"`
+	MarginRatioPerThousand  Uint32 `json:"margin_ratio_per_thousand"`
 	CostPerBlock            Amount `json:"cost_per_block"`
 	VRFPublicKey            string `json:"vrf_public_key"`
 	DelegationsBalance      Amount `json:"delegations_balance"`
@@ -149,19 +149,19 @@ type Pool struct {
 type Delegation struct {
 	DelegationID        string `json:"delegation_id"`
 	PoolID              string `json:"pool_id"`
-	NextNonce           uint64 `json:"next_nonce"`
+	NextNonce           Uint64 `json:"next_nonce"`
 	SpendDestination    string `json:"spend_destination"`
 	Balance             Amount `json:"balance"`
-	CreationBlockHeight uint64 `json:"creation_block_height"`
+	CreationBlockHeight Uint64 `json:"creation_block_height"`
 }
 
 // PoolDelegation is one entry returned by GetPoolDelegations.
 type PoolDelegation struct {
 	DelegationID        string `json:"delegation_id"`
-	NextNonce           uint64 `json:"next_nonce"`
+	NextNonce           Uint64 `json:"next_nonce"`
 	SpendDestination    string `json:"spend_destination"`
 	Balance             Amount `json:"balance"`
-	CreationBlockHeight uint64 `json:"creation_block_height"`
+	CreationBlockHeight Uint64 `json:"creation_block_height"`
 }
 
 // TokenInfo is returned by GetToken.
@@ -178,7 +178,7 @@ type TokenInfo struct {
 	IsTokenUnfreezable *bool `json:"is_token_unfreezable"`
 	// IsTokenFreezable is non-nil only when Frozen is false.
 	IsTokenFreezable *bool  `json:"is_token_freezable"`
-	NextNonce        uint64 `json:"next_nonce"`
+	NextNonce        Uint64 `json:"next_nonce"`
 }
 
 // TokenTx is one entry returned by GetTokenTransactions.
@@ -217,7 +217,7 @@ type Order struct {
 	AskCurrency         json.RawMessage `json:"ask_currency"`
 	InitiallyAsked      Amount          `json:"initially_asked"`
 	AskBalance          Amount          `json:"ask_balance"`
-	Nonce               uint64          `json:"nonce"`
+	Nonce               Uint64          `json:"nonce"`
 }
 
 // CoinStats is returned by GetCoinStatistics and GetTokenStatistics.
