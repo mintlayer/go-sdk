@@ -52,15 +52,6 @@ func (c *Client) GetPoolBlockStats(ctx context.Context, id string, from, to time
 	return result.BlockCount, nil
 }
 
-// GetDelegation returns a single delegation by id (bech32).
-func (c *Client) GetDelegation(ctx context.Context, id string) (*Delegation, error) {
-	var result Delegation
-	if err := c.get(ctx, fmt.Sprintf("/delegation/%s", id), nil, &result); err != nil {
-		return nil, err
-	}
-	return &result, nil
-}
-
 // GetPoolDelegations returns all delegations in a pool.
 func (c *Client) GetPoolDelegations(ctx context.Context, id string) ([]PoolDelegation, error) {
 	var result []PoolDelegation
