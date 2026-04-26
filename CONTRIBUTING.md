@@ -14,6 +14,17 @@ As an outside contributor, your first step will be to fork the repo and create y
 
 As you make your changes, ensure the code is as clean as possible and well documented so that it's clear to us what you're up to when we review it and it is thoroughly tested. Make sure that the old tests still pass, as well as any tests you've added. We will only merge code with all the tests passing in CI.
 
+## Developer setup
+
+After cloning, run the following once to activate the shared git hooks:
+
+    git config core.hooksPath .githooks
+
+This enables a pre-commit hook that blocks commits to Go files missing the
+required license header. To add missing headers to new files, run:
+
+    bash scripts/add-license.sh
+
 ## Internal contributors
 
 By internal contributors, we mean people who are members of the Mintlayer organization. If you are not employed full-time to work on Mintlayer but have substantial contributions, drop us a message, and we'll see what can be done about adding you.

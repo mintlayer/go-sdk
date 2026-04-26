@@ -10,6 +10,20 @@ Requires Go 1.21+. No CGO. The WASM cryptography runtime is embedded in the bina
 
 ---
 
+## Documentation
+
+| Guide | Description |
+|-------|-------------|
+| [docs/indexer.md](docs/indexer.md) | Full indexer client reference: chain, blocks, transactions, addresses, pools, tokens, orders, statistics |
+| [docs/node.md](docs/node.md) | Full node client reference: chainstate, mempool, P2P, block submission |
+| [docs/wallet.md](docs/wallet.md) | Full wallet client reference: lifecycle, accounts, balances, transactions |
+| [docs/wasm.md](docs/wasm.md) | Full WASM client reference: keys, addresses, inputs, outputs, signing, fees |
+| [docs/transactions.md](docs/transactions.md) | Step-by-step guide to building and signing transactions without the wallet daemon |
+| [docs/staking.md](docs/staking.md) | Staking pools and delegations: creation, funding, withdrawal, and read queries |
+| [docs/tokens.md](docs/tokens.md) | Fungible token and NFT lifecycle: issuance, minting, freezing, authority, manual encoding |
+
+---
+
 ## Overview
 
 The SDK is organised as four independent sub-clients plus a top-level `Client` that wires them together.

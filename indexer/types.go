@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 package indexer
 
 import (
@@ -137,6 +143,16 @@ type Pool struct {
 	CostPerBlock            Amount `json:"cost_per_block"`
 	VRFPublicKey            string `json:"vrf_public_key"`
 	DelegationsBalance      Amount `json:"delegations_balance"`
+}
+
+// Delegation is returned by GetDelegation.
+type Delegation struct {
+	DelegationID        string `json:"delegation_id"`
+	PoolID              string `json:"pool_id"`
+	NextNonce           uint64 `json:"next_nonce"`
+	SpendDestination    string `json:"spend_destination"`
+	Balance             Amount `json:"balance"`
+	CreationBlockHeight uint64 `json:"creation_block_height"`
 }
 
 // PoolDelegation is one entry returned by GetPoolDelegations.

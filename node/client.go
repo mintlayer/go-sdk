@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 // Package node provides a JSON-RPC 2.0 client for the Mintlayer node daemon
 // (default mainnet port 3030, testnet port 13030).
 package node

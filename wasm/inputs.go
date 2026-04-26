@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 package mintlayer
 
 // EncodeInputForUtxo encodes a UTXO input from an outpoint source ID and output index.

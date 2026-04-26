@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 // Command issue-token demonstrates issuing a new fungible token and minting an
 // initial supply using the Mintlayer wallet daemon.
 //

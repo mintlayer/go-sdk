@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 package indexer_test
 
 import (
@@ -517,6 +523,37 @@ func TestGetPoolBlockStats_QueryParams(t *testing.T) {
 	}
 	if !strings.Contains(gotURI, "to=1700086400") {
 		t.Errorf("expected to param in %q", gotURI)
+	}
+}
+
+func TestGetDelegation(t *testing.T) {
+	delg := indexer.Delegation{
+		DelegationID:        "mdelg1abc",
+		PoolID:              "mpool1xyz",
+		NextNonce:           7,
+		SpendDestination:    "mtc1dest",
+		Balance:             indexer.Amount{Atoms: "500000000000", Decimal: "5.0"},
+		CreationBlockHeight: 10000,
+	}
+	srv := jsonHandler(t, delg)
+	defer srv.Close()
+
+	c := indexer.New(srv.URL)
+	got, err := c.GetDelegation(context.Background(), "mdelg1abc")
+	if err != nil {
+		t.Fatalf("GetDelegation: %v", err)
+	}
+	if got.DelegationID != "mdelg1abc" {
+		t.Errorf("unexpected delegation id: %q", got.DelegationID)
+	}
+	if got.PoolID != "mpool1xyz" {
+		t.Errorf("unexpected pool id: %q", got.PoolID)
+	}
+	if got.NextNonce != 7 {
+		t.Errorf("expected nonce 7, got %d", got.NextNonce)
+	}
+	if got.CreationBlockHeight != 10000 {
+		t.Errorf("expected height 10000, got %d", got.CreationBlockHeight)
 	}
 }
 

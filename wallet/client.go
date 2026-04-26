@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 // Package wallet provides a JSON-RPC 2.0 client for the Mintlayer wallet daemon
 // (wallet-rpc-daemon, default mainnet port 3034, testnet port 13034).
 package wallet

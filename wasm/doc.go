@@ -1,3 +1,9 @@
+// Copyright (c) 2026 Mintlayer Institutional FZCO
+// Contact: hello@mintlayer.org
+//
+// Use of this source code is governed by an MIT license
+// that can be found in the LICENSE file.
+
 // Package mintlayer provides Go bindings for the Mintlayer blockchain WASM library.
 //
 // It wraps the compiled WebAssembly module from the Mintlayer wasm-wrappers project,

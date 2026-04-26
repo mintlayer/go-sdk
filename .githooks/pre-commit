@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STAGED_GO=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$' || true)
+
+if [ -z "$STAGED_GO" ]; then
+  exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+# shellcheck disable=SC2086
+bash scripts/check-license.sh $STAGED_GO
