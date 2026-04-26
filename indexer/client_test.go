@@ -448,7 +448,7 @@ func TestListPools(t *testing.T) {
 		t.Errorf("unexpected pool id: %q", got[0].PoolID)
 	}
 	if got[0].MarginRatioPerThousand != 100 {
-		t.Errorf("expected margin 100, got %d", got[0].MarginRatioPerThousand)
+		t.Errorf("expected margin 100, got %v", got[0].MarginRatioPerThousand)
 	}
 }
 
@@ -851,6 +851,29 @@ func rawHandler(t *testing.T, body string) *httptest.Server {
 	}))
 }
 
+func TestPool_MarginRatio_FloatPercent(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want float64
+	}{
+		{`[{"pool_id":"p","decommission_destination":"","staker_balance":{"atoms":"0","decimal":"0"},"margin_ratio_per_thousand":"3.5%","cost_per_block":{"atoms":"0","decimal":"0"},"vrf_public_key":"","delegations_balance":{"atoms":"0","decimal":"0"}}]`, 3.5},
+		// integer with % sign
+		{`[{"pool_id":"p","decommission_destination":"","staker_balance":{"atoms":"0","decimal":"0"},"margin_ratio_per_thousand":"10%","cost_per_block":{"atoms":"0","decimal":"0"},"vrf_public_key":"","delegations_balance":{"atoms":"0","decimal":"0"}}]`, 10},
+	}
+	for _, tc := range cases {
+		srv := rawHandler(t, tc.raw)
+		c := indexer.New(srv.URL)
+		got, err := c.ListPools(context.Background(), indexer.PoolListOpts{})
+		srv.Close()
+		if err != nil {
+			t.Fatalf("ListPools: %v", err)
+		}
+		if got[0].MarginRatioPerThousand != indexer.PerThousand(tc.want) {
+			t.Errorf("raw %q: expected %v, got %v", tc.raw, tc.want, got[0].MarginRatioPerThousand)
+		}
+	}
+}
+
 func TestPool_MarginRatio_StringForm(t *testing.T) {
 	raw := `[{"pool_id":"mpool1abc","decommission_destination":"","staker_balance":{"atoms":"0","decimal":"0"},"margin_ratio_per_thousand":"10","cost_per_block":{"atoms":"0","decimal":"0"},"vrf_public_key":"","delegations_balance":{"atoms":"0","decimal":"0"}}]`
 	srv := rawHandler(t, raw)
@@ -862,7 +885,7 @@ func TestPool_MarginRatio_StringForm(t *testing.T) {
 		t.Fatalf("ListPools: %v", err)
 	}
 	if got[0].MarginRatioPerThousand != 10 {
-		t.Errorf("expected 10, got %d", got[0].MarginRatioPerThousand)
+		t.Errorf("expected 10, got %v", got[0].MarginRatioPerThousand)
 	}
 }
 

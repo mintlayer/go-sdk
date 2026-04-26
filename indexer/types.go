@@ -139,7 +139,7 @@ type Pool struct {
 	PoolID                  string `json:"pool_id"`
 	DecommissionDestination string `json:"decommission_destination"`
 	StakerBalance           Amount `json:"staker_balance"`
-	MarginRatioPerThousand  Uint32 `json:"margin_ratio_per_thousand"`
+	MarginRatioPerThousand  PerThousand `json:"margin_ratio_per_thousand"`
 	CostPerBlock            Amount `json:"cost_per_block"`
 	VRFPublicKey            string `json:"vrf_public_key"`
 	DelegationsBalance      Amount `json:"delegations_balance"`
