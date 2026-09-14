@@ -271,6 +271,103 @@ func discoverFunding(ctx context.Context, h *harness, minAtoms string) (*funding
 	return nil, fmt.Errorf("all %d daemon-listed UTXOs are already spent on chain (stale wallet view)", len(cands))
 }
 
+// extractSignedTx strips the PST envelope: layout is tx || witnesses-vec ||
+// input_utxos || ... — the broadcastable SignedTransaction is the composed tx
+// bytes followed by the completed witness vector (compact count + entries).
+// Witness entries: Option tag (0x01 Some / 0x00 None); Some = witness enum
+// tag 0x00 NoSignature, 0x01 Signature(sighash u8 + sig 64 + pubkey 33).
+func extractSignedTx(pst []byte, composedTx []byte) ([]byte, error) {
+	if len(pst) < len(composedTx) {
+		return nil, fmt.Errorf("pst shorter than composed tx")
+	}
+	if !equalBytes(pst[:len(composedTx)], composedTx) {
+		// MaybeSignedTransaction enum tag (0x01 = PartiallySigned) precedes the PST
+		if len(pst) > 0 && (pst[0] == 0x00 || pst[0] == 0x01) && equalBytes(pst[1:1+len(composedTx)], composedTx) {
+			pst = pst[1:]
+		} else {
+			return nil, fmt.Errorf("pst does not start with the composed tx (first bytes %x vs %x)", pst[:min(8, len(pst))], composedTx[:min(8, len(composedTx))])
+		}
+	}
+	rest := pst[len(composedTx):]
+	n, off, err := readCompact(rest)
+	if err != nil {
+		return nil, fmt.Errorf("witness count: %w", err)
+	}
+	wit := []byte{}
+	for i := 0; i < n; i++ {
+		if off >= len(rest) {
+			return nil, fmt.Errorf("witness %d: truncated option tag", i)
+		}
+		opt := rest[off]
+		off++
+		if opt == 0x00 {
+			return nil, fmt.Errorf("witness %d: unsigned (incomplete pst)", i)
+		}
+		if off >= len(rest) {
+			return nil, fmt.Errorf("witness %d: truncated enum tag", i)
+		}
+		tag := rest[off]
+		off++
+		switch tag {
+		case 0x00: // NoSignature: empty body
+			wit = append(wit, 0x00)
+		case 0x01: // Signature: sighash(1) + sig(64) + pubkey(33)
+			if off+98 > len(rest) {
+				return nil, fmt.Errorf("witness %d: truncated signature", i)
+			}
+			wit = append(wit, 0x01)
+			wit = append(wit, rest[off:off+1+64+33]...)
+			off += 1 + 64 + 33
+		default:
+			return nil, fmt.Errorf("witness %d: unknown tag 0x%02x", i, tag)
+		}
+	}
+	// SignedTransaction = tx || compact(count) || witnesses (no option tags)
+	cb := []byte{byte(n&0b11 | ((n >> 2) << 2))}
+	out := append(append([]byte{}, composedTx...), cb...)
+	out = append(out, wit...)
+	return out, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func equalBytes(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// readCompact parses a scale compact uint prefix (single-byte form suffices
+// for input counts < 64).
+func readCompact(b []byte) (int, int, error) {
+	if len(b) == 0 {
+		return 0, 0, fmt.Errorf("empty")
+	}
+	f := b[0] & 0b11
+	switch {
+	case f < 2:
+		return int(b[0]) >> 2, 1, nil
+	case f == 2:
+		if len(b) < 2 {
+			return 0, 0, fmt.Errorf("truncated")
+		}
+		v := int(b[0])>>2 | int(b[1])<<6
+		return v, 2, nil
+	}
+	return 0, 0, fmt.Errorf("compact too large for witness counts")
+}
+
 // runD12Probe composes conclude+create in a single transaction via pure wasm,
 // wraps it in a PST, has the wallet daemon sign it, and reports every gap on
 // the (currently impossible) broadcast path.
@@ -384,6 +481,7 @@ func runD12Probe(ctx context.Context, r *Runner, h *harness, timeout time.Durati
 		return
 	}
 	tx, err = w.EncodeTransaction(inputs, append(append([]byte{}, createOut...), changeOut...), 0)
+	h.D12ComposedTx = append([]byte{}, tx...)
 	if err != nil {
 		r.Record(area, name, StatusFail, "re-encode tx: "+err.Error())
 		return
@@ -449,16 +547,30 @@ func runD12Probe(ctx context.Context, r *Runner, h *harness, timeout time.Durati
 		"daemon signed the conclude input (conclude key owned); signed PST "+itoa(len(signed.Hex)/2)+" bytes")
 	r.Finding("wallet.SignRawTransaction returns MaybeSignedTransaction (a PST, with an undocumented per-entry Option-tag wire format) — the SDK's SignedTx type also drops the daemon's is_complete flag")
 
-	// broadcast attempt — currently impossible: no PST→SignedTransaction conversion
-	// exists in the SDK or the wasm module, and node_submit_transaction rejects PSTs.
-	sub, err := h.wc.SubmitTransaction(ctx, signed.Hex, false)
-	if err != nil {
-		r.Record(area, name+" broadcast", StatusFail,
-			"expected blocker: "+err.Error())
-		r.Finding("Broadcast path for custom PSTs is broken end-to-end: SignRawTransaction returns a PST but no SDK/wasm function converts a complete PST to a SignedTransaction, and wallet.SubmitTransaction (node_submit_transaction) rejects PST hex (%v)", err)
-	} else {
-		r.Record(area, name+" broadcast", StatusPass, "txid="+short(sub.TxID))
+	// Strip the PST envelope → broadcastable SignedTransaction and submit.
+	pstBytes, derr := hex.DecodeString(signed.Hex)
+	if derr != nil {
+		r.Record(area, name+" broadcast", StatusFail, "pst hex: "+derr.Error())
+		return
 	}
+	signedTx, xerr := extractSignedTx(pstBytes, h.D12ComposedTx)
+	if xerr != nil {
+		r.Record(area, name+" broadcast", StatusFail, "extract: "+xerr.Error())
+		r.Finding("PST→SignedTransaction extraction failed: %v", xerr)
+		return
+	}
+	sub, err := h.wc.SubmitTransaction(ctx, hex.EncodeToString(signedTx), false)
+	if err != nil {
+		r.Record(area, name+" broadcast", StatusFail, err.Error())
+		r.Finding("Atomic batch broadcast rejected: %v", err)
+		return
+	}
+	r.Record(area, name+" broadcast", StatusPass, "ATOMIC txid="+short(sub.TxID)+" (conclude+create in one tx)"+itoa(len(signedTx)/2)+"B")
+	if werr := waitTxConfirmed(ctx, h.nc, sub.TxID, 5*time.Minute); werr != nil {
+		r.Record(area, name+" confirm", StatusFail, werr.Error())
+		return
+	}
+	r.Record(area, name+" confirmed", StatusPass, "D12 atomic migration landed on chain")
 }
 
 func mustAcc0Addr(ctx context.Context, h *harness) string {

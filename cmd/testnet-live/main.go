@@ -54,6 +54,7 @@ type harness struct {
 	OrderID             string // D12 fixture order
 	OrderTxID           string
 	D12SignedPST        string
+	D12ComposedTx       []byte
 	CounterpartyAccount uint32
 	restore             func(string)
 }
