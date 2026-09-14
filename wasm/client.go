@@ -355,6 +355,12 @@ func (c *Client) readAmount(wasmPtr uint32) (Amount, error) {
 	return NewAmount(atoms), nil
 }
 
+// externrefTableIndex is the module table holding externref values (strings
+// and Uint8Array wrappers). The embedded module declares two tables: table 0
+// is funcrefs (indirect calls), table 1 is the externref table used by
+// wasm-bindgen's passArrayJsValueToWasm0 pattern.
+const externrefTableIndex = 1
+
 // writeStringArray writes a []string as an array of WASM externref table indices in
 // WASM linear memory, matching the passArrayJsValueToWasm0 pattern.
 // Returns (ptr, count). Call freeStringArray to release.
@@ -382,7 +388,7 @@ func (c *Client) writeStringArray(strs []string) (ptr, count uint32, err error) 
 		if err2 != nil || len(idxResult) == 0 {
 			// Cleanup already-allocated slots
 			for _, idx := range tableIndices {
-				key := getWASMTableRef(c.mod, 0, idx)
+				key := getWASMTableRef(c.mod, externrefTableIndex, idx)
 				refs.free(key)
 			}
 			c.freeWASM(arrPtr, n*4)
@@ -393,7 +399,7 @@ func (c *Client) writeStringArray(strs []string) (ptr, count uint32, err error) 
 
 		// Store string in Go refs and wire it into the WASM table.
 		key := refs.alloc(s)
-		setWASMTableRef(c.mod, 0, tableIdx, key)
+		setWASMTableRef(c.mod, externrefTableIndex, tableIdx, key)
 
 		var buf [4]byte
 		binary.LittleEndian.PutUint32(buf[:], tableIdx)
@@ -433,7 +439,7 @@ func (c *Client) writeUint8ArrayArray(slices [][]byte) (ptr, count uint32, err e
 		wasmPtr, wasmLen, err2 := c.writeBytes(b)
 		if err2 != nil {
 			for _, a := range allocs {
-				key := getWASMTableRef(c.mod, 0, a.tableIdx)
+				key := getWASMTableRef(c.mod, externrefTableIndex, a.tableIdx)
 				refs.free(key)
 				c.freeWASM(a.wasmPtr, a.wasmLen)
 			}
@@ -445,7 +451,7 @@ func (c *Client) writeUint8ArrayArray(slices [][]byte) (ptr, count uint32, err e
 		if err2 != nil || len(idxResult) == 0 {
 			c.freeWASM(wasmPtr, wasmLen)
 			for _, a := range allocs {
-				key := getWASMTableRef(c.mod, 0, a.tableIdx)
+				key := getWASMTableRef(c.mod, externrefTableIndex, a.tableIdx)
 				refs.free(key)
 				c.freeWASM(a.wasmPtr, a.wasmLen)
 			}
@@ -455,7 +461,7 @@ func (c *Client) writeUint8ArrayArray(slices [][]byte) (ptr, count uint32, err e
 		tableIdx := uint32(idxResult[0])
 
 		key := refs.alloc(uint8ArrayRef{ptr: wasmPtr, len: wasmLen})
-		setWASMTableRef(c.mod, 0, tableIdx, key)
+		setWASMTableRef(c.mod, externrefTableIndex, tableIdx, key)
 		allocs = append(allocs, allocation{tableIdx, wasmPtr, wasmLen})
 
 		var buf [4]byte
@@ -477,7 +483,7 @@ func (c *Client) freeStringArray(arrPtr, count uint32) {
 			continue
 		}
 		tableIdx := binary.LittleEndian.Uint32(data)
-		key := getWASMTableRef(c.mod, 0, tableIdx)
+		key := getWASMTableRef(c.mod, externrefTableIndex, tableIdx)
 		refs.free(key)
 		if deallocFn != nil {
 			deallocFn.Call(c.ctx, uint64(tableIdx)) //nolint:errcheck
@@ -498,7 +504,7 @@ func (c *Client) freeUint8ArrayArray(arrPtr, count uint32) {
 			continue
 		}
 		tableIdx := binary.LittleEndian.Uint32(data)
-		key := getWASMTableRef(c.mod, 0, tableIdx)
+		key := getWASMTableRef(c.mod, externrefTableIndex, tableIdx)
 		if v, ok2 := refs.get(key); ok2 {
 			if arr, ok3 := v.(uint8ArrayRef); ok3 {
 				c.freeWASM(arr.ptr, arr.len)
@@ -529,24 +535,24 @@ func (c *Client) freeExternRef(key uintptr) {
 // We reach into the internal wasm.ModuleInstance.Tables[idx].References slice
 // using reflect + unsafe so we can store and retrieve externref values.
 
-// setWASMTableRef writes val into the WASM externref table at the given indices.
+// setWASMTableRef writes val into the WASM table at the given index.
 func setWASMTableRef(mod api.Module, tableIdx, refIdx uint32, val uintptr) {
 	refsSlice, ok := wasmTableRefsSlice(mod, tableIdx)
 	if !ok || int(refIdx) >= refsSlice.Len() {
 		return
 	}
-	ptr := unsafe.Pointer(refsSlice.Pointer() + uintptr(refIdx)*unsafe.Sizeof(uintptr(0)))
-	*(*uintptr)(ptr) = val
+	refs := unsafe.Slice((*uintptr)(refsSlice.UnsafePointer()), refsSlice.Len())
+	refs[refIdx] = val
 }
 
-// getWASMTableRef reads a value from the WASM externref table.
+// getWASMTableRef reads a value from the WASM table.
 func getWASMTableRef(mod api.Module, tableIdx, refIdx uint32) uintptr {
 	refsSlice, ok := wasmTableRefsSlice(mod, tableIdx)
 	if !ok || int(refIdx) >= refsSlice.Len() {
 		return 0
 	}
-	ptr := unsafe.Pointer(refsSlice.Pointer() + uintptr(refIdx)*unsafe.Sizeof(uintptr(0)))
-	return *(*uintptr)(ptr)
+	refs := unsafe.Slice((*uintptr)(refsSlice.UnsafePointer()), refsSlice.Len())
+	return refs[refIdx]
 }
 
 // wasmTableRefsSlice returns the reflect.Value of the References slice for a table.

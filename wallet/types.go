@@ -180,7 +180,7 @@ type SendParams struct {
 	Account       uint32     `json:"account"`
 	Address       string     `json:"address"`
 	Amount        Amount     `json:"amount"`
-	SelectedUTXOs []Outpoint `json:"selected_utxos"`
+	SelectedUTXOs []Outpoint `json:"selected_utxos,omitempty"`
 	Options       TxOptions  `json:"options"`
 }
 
