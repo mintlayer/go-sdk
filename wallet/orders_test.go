@@ -67,6 +67,16 @@ func mustJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
+// mustTokenFilter builds a TokenFilter or fails the test.
+func mustTokenFilter(t *testing.T, tokenID string) *wallet.CurrencyFilter {
+	t.Helper()
+	f, err := wallet.TokenFilter(tokenID)
+	if err != nil {
+		t.Fatalf("TokenFilter(%q): %v", tokenID, err)
+	}
+	return f
+}
+
 // --- OutputValue marshaling / unmarshaling ---
 
 func TestOutputValue_MarshalCoin(t *testing.T) {
@@ -127,17 +137,29 @@ func TestOutputValue_UnmarshalToken(t *testing.T) {
 	}
 }
 
-func TestOutputValue_UnmarshalMissingAmount(t *testing.T) {
-	raw := []byte(`{"type":"Coin"}`)
-	var v wallet.OutputValue
-	if err := json.Unmarshal(raw, &v); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+// TestOutputValue_UnmarshalMissingAmountErrors pins that decoding an
+// OutputValue with a missing, null, or empty amount fails on both the Coin
+// and Token branches.
+func TestOutputValue_UnmarshalMissingAmountErrors(t *testing.T) {
+	cases := map[string]string{
+		"coin missing amount":  `{"type":"Coin"}`,
+		"coin null amount":     `{"type":"Coin","content":{"amount":null}}`,
+		"coin empty amount":    `{"type":"Coin","content":{"amount":{}}}`,
+		"coin empty atoms":     `{"type":"Coin","content":{"amount":{"atoms":""}}}`,
+		"token missing amount": `{"type":"Token","content":{"id":"tok1noamount"}}`,
+		"token null amount":    `{"type":"Token","content":{"id":"tok1noamount","amount":null}}`,
+		"token empty amount":   `{"type":"Token","content":{"id":"tok1noamount","amount":{}}}`,
 	}
-	if !v.Coin {
-		t.Error("expected Coin=true")
-	}
-	if v.Amount.Atoms != "" || v.Amount.Decimal != "" {
-		t.Errorf("expected zero amount, got %+v", v.Amount)
+	for name, raw := range cases {
+		var v wallet.OutputValue
+		err := json.Unmarshal([]byte(raw), &v)
+		if err == nil {
+			t.Errorf("%s: expected error, got nil (decoded %+v)", name, v)
+			continue
+		}
+		if want := "requires an amount"; !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: error %q does not contain %q", name, err, want)
+		}
 	}
 }
 
@@ -155,6 +177,56 @@ func TestOutputValue_UnmarshalMalformedJSONErrors(t *testing.T) {
 	var v wallet.OutputValue
 	if err := json.Unmarshal([]byte(`{"type":123,"content":{}}`), &v); err == nil {
 		t.Fatal("expected error for wrong-typed field, got nil")
+	}
+}
+
+// TestOutputValue_MarshalCoinWithoutAmountErrors pins the marshal-side amount
+// requirement on the Coin branch: a coin OutputValue with an empty Amount
+// (both Atoms and Decimal "") must fail before any JSON is produced.
+func TestOutputValue_MarshalCoinWithoutAmountErrors(t *testing.T) {
+	v := wallet.OutputValue{Coin: true}
+	b, err := json.Marshal(v)
+	if err == nil {
+		t.Fatalf("expected error marshaling coin OutputValue without amount, got %s", b)
+	}
+	if want := "requires an amount"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not contain %q", err, want)
+	}
+}
+
+// TestOutputValue_MarshalTokenWithoutAmountErrors pins the same requirement on
+// the Token branch, ordered before the TokenID check in the wire shape.
+func TestOutputValue_MarshalTokenWithoutAmountErrors(t *testing.T) {
+	v := wallet.OutputValue{TokenID: "tok1noamount"}
+	if b, err := json.Marshal(v); err == nil {
+		t.Fatalf("expected error marshaling token OutputValue without amount, got %s", b)
+	}
+}
+
+// TestOutputValue_UnmarshalCoinKeepsBothAmountFields pins that a Coin amount
+// carrying both atoms and decimal survives unmarshaling with both fields
+// populated (the empty-amount validation must not drop either).
+func TestOutputValue_UnmarshalCoinKeepsBothAmountFields(t *testing.T) {
+	raw := []byte(`{"type":"Coin","content":{"amount":{"atoms":"700","decimal":"0.0000007"}}}`)
+	var v wallet.OutputValue
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v.Amount.Atoms != "700" {
+		t.Errorf("expected atoms kept, got %q", v.Amount.Atoms)
+	}
+	if v.Amount.Decimal != "0.0000007" {
+		t.Errorf("expected decimal kept, got %q", v.Amount.Decimal)
+	}
+}
+
+// TestOutputValue_UnmarshalTokenWithoutIDErrors pins the unmarshal-side TokenID
+// requirement (previously enforced only when marshaling).
+func TestOutputValue_UnmarshalTokenWithoutIDErrors(t *testing.T) {
+	raw := []byte(`{"type":"Token","content":{"amount":{"atoms":"1"}}}`)
+	var v wallet.OutputValue
+	if err := json.Unmarshal(raw, &v); err == nil {
+		t.Fatalf("expected error for token without id, got %+v", v)
 	}
 }
 
@@ -404,6 +476,47 @@ func TestFreezeOrder_WireShape(t *testing.T) {
 	}
 }
 
+// --- TokenFilter ---
+
+// TestTokenFilter_ReturnsFilter pins the (tokenID string) (*CurrencyFilter,
+// error) signature: a valid id yields a Token filter carrying the id.
+func TestTokenFilter_ReturnsFilter(t *testing.T) {
+	f := mustTokenFilter(t, "tok1filterabc")
+	if f == nil {
+		t.Fatal("expected non-nil filter")
+	}
+	if f.Type != "Token" {
+		t.Errorf("expected type Token, got %q", f.Type)
+	}
+	if f.Content != "tok1filterabc" {
+		t.Errorf("expected content tok1filterabc, got %q", f.Content)
+	}
+}
+
+// TestTokenFilter_EmptyTokenIDErrors pins that an empty id is rejected instead
+// of silently matching nothing; CoinFilter is the native-coin path.
+func TestTokenFilter_EmptyTokenIDErrors(t *testing.T) {
+	f, err := wallet.TokenFilter("")
+	if err == nil {
+		t.Fatalf("expected error for empty token id, got filter %+v", f)
+	}
+	if f != nil {
+		t.Errorf("expected nil filter on error, got %+v", f)
+	}
+	if want := "requires a token id"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not contain %q", err, want)
+	}
+}
+
+// TestTokenFilter_WireShape pins that the filter returned by the new signature
+// still encodes the id as content on the wire.
+func TestTokenFilter_WireShape(t *testing.T) {
+	want := `{"type":"Token","content":"tok1wireabc"}`
+	if got := mustJSON(t, mustTokenFilter(t, "tok1wireabc")); got != want {
+		t.Errorf("token filter wire shape:\n got  %s\n want %s", got, want)
+	}
+}
+
 // --- ListOwnOrders ---
 
 func TestListOwnOrders_Decoding(t *testing.T) {
@@ -555,7 +668,7 @@ func TestListAllActiveOrders_WithFilters(t *testing.T) {
 	got, err := c.ListAllActiveOrders(context.Background(), wallet.ListOrdersParams{
 		Account:      0,
 		AskCurrency:  wallet.CoinFilter(),
-		GiveCurrency: wallet.TokenFilter("tok1givenabc"),
+		GiveCurrency: mustTokenFilter(t, "tok1givenabc"),
 	})
 	if err != nil {
 		t.Fatalf("ListAllActiveOrders: %v", err)
@@ -568,7 +681,8 @@ func TestListAllActiveOrders_WithFilters(t *testing.T) {
 	if err := json.Unmarshal(captured.Params, &wire); err != nil {
 		t.Fatalf("decode params: %v", err)
 	}
-	wantAsk := `{"type":"Coin","content":""}`
+	// Coin filters carry no content on the wire (daemon-verified).
+	wantAsk := `{"type":"Coin"}`
 	if string(wire.AskCurrency) != wantAsk {
 		t.Errorf("ask_currency filter:\n got  %s\n want %s", wire.AskCurrency, wantAsk)
 	}
@@ -642,8 +756,8 @@ func TestOrderMethods_RPCErrorPropagates(t *testing.T) {
 
 	t.Run("CreateOrder", func(t *testing.T) {
 		got, err := c.CreateOrder(context.Background(), wallet.CreateOrderParams{
-			Ask:  wallet.OutputValue{Coin: true},
-			Give: wallet.OutputValue{Coin: true},
+			Ask:  wallet.OutputValue{Coin: true, Amount: wallet.Amount{Atoms: "1"}},
+			Give: wallet.OutputValue{Coin: true, Amount: wallet.Amount{Atoms: "2"}},
 		})
 		assertRPCError(t, err)
 		if got != nil {

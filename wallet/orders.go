@@ -23,6 +23,9 @@ type OutputValue struct {
 }
 
 func (v OutputValue) MarshalJSON() ([]byte, error) {
+	if v.Amount.Atoms == "" && v.Amount.Decimal == "" {
+		return nil, fmt.Errorf("wallet: output value requires an amount")
+	}
 	if v.Coin {
 		return json.Marshal(struct {
 			Type    string `json:"type"`
@@ -67,8 +70,12 @@ func (v *OutputValue) UnmarshalJSON(b []byte) error {
 	default:
 		return fmt.Errorf("wallet: unknown output value type %q", raw.Type)
 	}
-	if raw.Content.Amount != nil {
-		v.Amount = *raw.Content.Amount
+	if raw.Content.Amount == nil || (raw.Content.Amount.Atoms == "" && raw.Content.Amount.Decimal == "") {
+		return fmt.Errorf("wallet: output value %q requires an amount", raw.Type)
+	}
+	v.Amount = *raw.Content.Amount
+	if !v.Coin && v.TokenID == "" {
+		return fmt.Errorf("wallet: token OutputValue requires TokenID")
 	}
 	return nil
 }
@@ -83,11 +90,21 @@ type CurrencyFilter struct {
 func CoinFilter() *CurrencyFilter { return &CurrencyFilter{Type: "Coin"} }
 
 // TokenFilter matches a token by its bech32 id.
-func TokenFilter(tokenID string) *CurrencyFilter {
-	return &CurrencyFilter{Type: "Token", Content: tokenID}
+func TokenFilter(tokenID string) (*CurrencyFilter, error) {
+	if tokenID == "" {
+		return nil, fmt.Errorf("wallet: TokenFilter requires a token id (use CoinFilter for the native coin)")
+	}
+	return &CurrencyFilter{Type: "Token", Content: tokenID}, nil
 }
 
 func (f *CurrencyFilter) MarshalJSON() ([]byte, error) {
+	// Coin filters carry no content on the wire (daemon-verified);
+	// token filters encode the bech32 id as content.
+	if f.Type == "Coin" {
+		return json.Marshal(struct {
+			Type string `json:"type"`
+		}{Type: f.Type})
+	}
 	return json.Marshal(struct {
 		Type    string `json:"type"`
 		Content string `json:"content"`
