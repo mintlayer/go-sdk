@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: alibaba/open-code-review@v1.12.0
+      - uses: alibaba/open-code-review@494bf1c8d7a19196ab166960a06fef38d69a1d16 # v1.12.0
         with:
           llm_url: https://api.z.ai/api/coding/paas/v4
           llm_auth_token: ${{ secrets.OCR_LLM_TOKEN }}
