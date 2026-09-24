@@ -52,20 +52,32 @@ func (c *Client) EstimateTransactionSize(inputs []byte, inputUtxosDests []string
 	if err != nil {
 		return 0, err
 	}
-	destsPtr, destsLen, err := c.writeStringArray(inputUtxosDests)
+	// The destinations array buffer is owned by the guest once the export is
+	// invoked (it converts the elements and frees the buffer during the call);
+	// only the Go-side refs entries are released afterwards. Freeing the buffer
+	// here would be a double free corrupting the WASM heap.
+	dests, err := c.writeStringArray(inputUtxosDests)
 	if err != nil {
+		c.freeWASM(inPtr, inLen) // export never called: wrapper still owns inputs
 		return 0, err
 	}
-	defer c.freeStringArray(destsPtr, destsLen)
 	outPtr, outLen, err := c.writeBytes(outputs)
 	if err != nil {
+		dests.discard(c) // export never called: wrapper still owns everything
+		c.freeWASM(inPtr, inLen)
 		return 0, err
 	}
-	return c.callReturnU32("estimate_transaction_size",
+	size, err := c.callReturnU32("estimate_transaction_size",
 		uint64(inPtr), uint64(inLen),
-		uint64(destsPtr), uint64(destsLen),
+		uint64(dests.ptr), uint64(dests.count),
 		uint64(outPtr), uint64(outLen),
 		uint64(network))
+	if dests.finish(c, err) {
+		// Export was never invoked: wrapper still owns the byte buffers too.
+		c.freeWASM(inPtr, inLen)
+		c.freeWASM(outPtr, outLen)
+	}
+	return size, err
 }
 
 // EncodeSignedTransaction combines an unsigned transaction with its witness signatures into

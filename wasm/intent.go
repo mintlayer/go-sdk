@@ -32,13 +32,22 @@ func (c *Client) EncodeSignedTransactionIntent(signedMessage []byte, signatures 
 	if err != nil {
 		return nil, err
 	}
-	sigsPtr, sigsLen, err := c.writeUint8ArrayArray(signatures)
+	// The signatures array buffer is owned by the guest once the export is
+	// invoked (it converts the elements and frees the buffer during the call);
+	// only the Go-side refs entries and the wrapper-owned element backing
+	// buffers are released afterwards. Freeing the array buffer here would be
+	// a double free corrupting the WASM heap.
+	sigs, err := c.writeUint8ArrayArray(signatures)
 	if err != nil {
+		c.freeWASM(msgPtr, msgLen) // export never called: wrapper still owns the message
 		return nil, err
 	}
-	defer c.freeUint8ArrayArray(sigsPtr, sigsLen)
-	return c.callReturnBytes("encode_signed_transaction_intent",
-		uint64(msgPtr), uint64(msgLen), uint64(sigsPtr), uint64(sigsLen))
+	res, err := c.callReturnBytes("encode_signed_transaction_intent",
+		uint64(msgPtr), uint64(msgLen), uint64(sigs.ptr), uint64(sigs.count))
+	if sigs.finish(c, err) {
+		c.freeWASM(msgPtr, msgLen) // export was never invoked
+	}
+	return res, err
 }
 
 // VerifyTransactionIntent verifies a signed transaction intent.
@@ -52,16 +61,26 @@ func (c *Client) VerifyTransactionIntent(expectedSignedMessage, encodedSignedInt
 	}
 	intentPtr, intentLen, err := c.writeBytes(encodedSignedIntent)
 	if err != nil {
+		c.freeWASM(msgPtr, msgLen) // export never called: wrapper still owns the message
 		return err
 	}
-	destsPtr, destsLen, err := c.writeStringArray(inputDestinations)
+	// The destinations array buffer is owned by the guest once the export is
+	// invoked; only the Go-side refs entries are released afterwards.
+	dests, err := c.writeStringArray(inputDestinations)
 	if err != nil {
+		c.freeWASM(msgPtr, msgLen)       // export never called: wrapper still owns the message
+		c.freeWASM(intentPtr, intentLen) // and the encoded intent
 		return err
 	}
-	defer c.freeStringArray(destsPtr, destsLen)
-	return c.callVoidFallible("verify_transaction_intent",
+	err = c.callVoidFallible("verify_transaction_intent",
 		uint64(msgPtr), uint64(msgLen),
 		uint64(intentPtr), uint64(intentLen),
-		uint64(destsPtr), uint64(destsLen),
+		uint64(dests.ptr), uint64(dests.count),
 		uint64(network))
+	if dests.finish(c, err) {
+		// Export was never invoked: wrapper still owns the byte buffers too.
+		c.freeWASM(msgPtr, msgLen)
+		c.freeWASM(intentPtr, intentLen)
+	}
+	return err
 }
