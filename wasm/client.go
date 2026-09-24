@@ -11,6 +11,7 @@ import (
 	_ "embed"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -61,6 +62,14 @@ func (c *Client) Close() error {
 
 // ── low-level call helpers ────────────────────────────────────────────────────
 
+// errExportNotInvoked marks call errors that happened before the WASM export
+// started executing (unknown name, arity mismatch). The guest cannot have
+// taken ownership of any wrapper-allocated arguments, so callers may still
+// discard (fully free) externRefArrays passed to the failed call. Any other
+// error (domain error, trap) means the export ran — possibly partially — so
+// arrays must be released (leak-safe) instead of discarded.
+var errExportNotInvoked = errors.New("export was not invoked")
+
 // call executes a named WASM export function with the given parameters and
 // returns the raw uint64 results.
 func (c *Client) call(fn string, params ...uint64) ([]uint64, error) {
@@ -73,7 +82,11 @@ func (c *Client) call(fn string, params ...uint64) ([]uint64, error) {
 	ctx := ctxWithCall(c.ctx)
 	f := c.mod.ExportedFunction(fn)
 	if f == nil {
-		return nil, fmt.Errorf("mintlayer: function %q not found", fn)
+		return nil, fmt.Errorf("mintlayer: function %q not found: %w", fn, errExportNotInvoked)
+	}
+	if len(params) != len(f.Definition().ParamTypes()) {
+		return nil, fmt.Errorf("mintlayer: function %q: got %d params, want %d: %w",
+			fn, len(params), len(f.Definition().ParamTypes()), errExportNotInvoked)
 	}
 	res, err := f.Call(ctx, params...)
 
@@ -284,6 +297,7 @@ func (c *Client) writeBytes(data []byte) (ptr, length uint32, err error) {
 	}
 	ptr = uint32(result[0])
 	if !c.mod.Memory().Write(ptr, data) {
+		c.freeWASM(ptr, uint32(len(data))) // nothing handed out, wrapper still owns it
 		return 0, 0, fmt.Errorf("mintlayer: memory write failed")
 	}
 	return ptr, uint32(len(data)), nil
@@ -361,25 +375,32 @@ func (c *Client) readAmount(wasmPtr uint32) (Amount, error) {
 // wasm-bindgen's passArrayJsValueToWasm0 pattern.
 const externrefTableIndex = 1
 
+// externRefElement is one element of an externRefArray: a Go refs registry
+// entry, the externref table slot it occupies, and — for byte-array elements
+// only — the wrapper-owned backing buffer the guest copies from.
+type externRefElement struct {
+	key uintptr
+	idx uint32
+	buf uint8ArrayRef // zero value for string elements
+}
+
 // externRefArray is the Go-side bookkeeping for an array of externref values
 // passed to a WASM export (wasm-bindgen reference-types passArrayJsValueToWasm0
 // pattern).
 //
-// OWNERSHIP: the array buffer (Ptr) is transferred to the guest when the
+// OWNERSHIP: the array buffer (ptr) is transferred to the guest when the
 // export is invoked. During the call the guest converts every element,
 // recycles the externref table slots, and frees the buffer itself — exactly
 // like wasm-bindgen's own JS glue for owned Vec params, which never frees the
-// buffer post-call. The wrapper must therefore NEVER free Ptr or re-read the
-// table indices from it after the export ran (doing so is a double free that
-// corrupts the dlmalloc heap). Only the Go refs registry entries — and, for
-// byte-array elements, the wrapper-allocated backing buffers — remain owned
-// by the wrapper and are released by release.
+// buffer post-call. The wrapper must therefore NEVER free ptr or touch the
+// table slots after the export ran (doing so is a double free that corrupts
+// the dlmalloc heap). The per-element Go refs entries — and, for byte-array
+// elements, the wrapper-allocated backing buffers — remain owned by the
+// wrapper and are released by release.
 type externRefArray struct {
 	ptr   uint32 // array buffer; owned by the guest once the export is called
 	count uint32
-	keys  []uintptr       // Go refs registry entries for the elements
-	idxs  []uint32        // externref table slots (recyclable until the export consumes them)
-	elems []uint8ArrayRef // wrapper-owned element backing buffers (byte arrays only)
+	elems []externRefElement
 }
 
 // release frees everything the wrapper still owns after an export consumed
@@ -387,18 +408,14 @@ type externRefArray struct {
 // error). It never touches the array buffer or the externref table: the guest
 // consumed and freed those during the call. Idempotent.
 func (a *externRefArray) release(c *Client) {
-	if a.ptr == 0 && len(a.keys) == 0 {
+	if a.ptr == 0 && len(a.elems) == 0 {
 		return // empty or already released
 	}
-	for i, key := range a.keys {
-		if i < len(a.elems) {
-			c.freeWASM(a.elems[i].ptr, a.elems[i].len)
-		}
-		refs.free(key)
+	for _, el := range a.elems {
+		c.freeWASM(el.buf.ptr, el.buf.len)
+		refs.free(el.key)
 	}
-	a.keys = nil
 	a.elems = nil
-	a.idxs = nil
 	a.ptr = 0
 	a.count = 0
 }
@@ -408,18 +425,34 @@ func (a *externRefArray) release(c *Client) {
 // the guest has not recycled the slots or freed the buffer yet, so the
 // wrapper still owns all of it. Idempotent.
 func (a *externRefArray) discard(c *Client) {
-	if a.ptr == 0 && len(a.keys) == 0 {
+	if a.ptr == 0 && len(a.elems) == 0 {
 		return // empty or already discarded
 	}
 	ptr, count := a.ptr, a.count
 	deallocFn := c.mod.ExportedFunction("__externref_table_dealloc")
-	for _, idx := range a.idxs {
+	for _, el := range a.elems {
 		if deallocFn != nil {
-			deallocFn.Call(c.ctx, uint64(idx)) //nolint:errcheck
+			deallocFn.Call(c.ctx, uint64(el.idx)) //nolint:errcheck
 		}
 	}
 	a.release(c)
 	c.freeWASM(ptr, count*4)
+}
+
+// finish cleans up arr after an export attempt returned invokeErr. If the
+// export was never invoked (unknown name, arity mismatch) the wrapper still
+// owns everything: the array is discarded and finish reports true so the
+// caller can free any sibling wrapper-owned buffers handed to the same
+// export. Otherwise (success, domain error, or trap — the guest ran, possibly
+// partially) the guest owns the buffer and slots and only the wrapper-owned
+// records are released.
+func (a *externRefArray) finish(c *Client, invokeErr error) bool {
+	if invokeErr != nil && errors.Is(invokeErr, errExportNotInvoked) {
+		a.discard(c)
+		return true
+	}
+	a.release(c)
+	return false
 }
 
 // writeStringArray writes a []string as an array of WASM externref table indices in
@@ -456,13 +489,15 @@ func (c *Client) writeStringArray(strs []string) (externRefArray, error) {
 
 		// Store string in Go refs and wire it into the WASM table.
 		key := refs.alloc(s)
-		arr.keys = append(arr.keys, key)
-		arr.idxs = append(arr.idxs, tableIdx)
 		setWASMTableRef(c.mod, externrefTableIndex, tableIdx, key)
+		arr.elems = append(arr.elems, externRefElement{key: key, idx: tableIdx})
 
 		var buf [4]byte
 		binary.LittleEndian.PutUint32(buf[:], tableIdx)
-		c.mod.Memory().Write(arr.ptr+uint32(i)*4, buf[:])
+		if !c.mod.Memory().Write(arr.ptr+uint32(i)*4, buf[:]) {
+			arr.discard(c) // export never called: wrapper still owns everything
+			return externRefArray{}, fmt.Errorf("mintlayer: write table index %d for string array: out of bounds", i)
+		}
 	}
 	return arr, nil
 }
@@ -507,14 +542,15 @@ func (c *Client) writeUint8ArrayArray(slices [][]byte) (externRefArray, error) {
 		tableIdx := uint32(idxResult[0])
 
 		key := refs.alloc(uint8ArrayRef{ptr: wasmPtr, len: wasmLen})
-		arr.keys = append(arr.keys, key)
-		arr.idxs = append(arr.idxs, tableIdx)
-		arr.elems = append(arr.elems, uint8ArrayRef{ptr: wasmPtr, len: wasmLen})
 		setWASMTableRef(c.mod, externrefTableIndex, tableIdx, key)
+		arr.elems = append(arr.elems, externRefElement{key: key, idx: tableIdx, buf: uint8ArrayRef{ptr: wasmPtr, len: wasmLen}})
 
 		var buf [4]byte
 		binary.LittleEndian.PutUint32(buf[:], tableIdx)
-		c.mod.Memory().Write(arr.ptr+uint32(i)*4, buf[:])
+		if !c.mod.Memory().Write(arr.ptr+uint32(i)*4, buf[:]) {
+			arr.discard(c) // export never called: wrapper still owns everything
+			return externRefArray{}, fmt.Errorf("mintlayer: write table index %d for byte-array array: out of bounds", i)
+		}
 	}
 	return arr, nil
 }
