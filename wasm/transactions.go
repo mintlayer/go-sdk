@@ -60,12 +60,12 @@ func (c *Client) EstimateTransactionSize(inputs []byte, inputUtxosDests []string
 	if err != nil {
 		return 0, err
 	}
-	defer dests.release(c)
 	outPtr, outLen, err := c.writeBytes(outputs)
 	if err != nil {
-		dests.discard(c) // export never called: wrapper still owns the buffer
+		dests.discard(c) // export never called: wrapper still owns everything
 		return 0, err
 	}
+	defer dests.release(c)
 	return c.callReturnU32("estimate_transaction_size",
 		uint64(inPtr), uint64(inLen),
 		uint64(dests.ptr), uint64(dests.count),
