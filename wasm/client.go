@@ -361,161 +361,139 @@ func (c *Client) readAmount(wasmPtr uint32) (Amount, error) {
 // wasm-bindgen's passArrayJsValueToWasm0 pattern.
 const externrefTableIndex = 1
 
+// externRefArray is the Go-side bookkeeping for an array of externref values
+// passed to a WASM export (wasm-bindgen reference-types passArrayJsValueToWasm0
+// pattern).
+//
+// OWNERSHIP: the array buffer (Ptr) is transferred to the guest when the
+// export is invoked. During the call the guest converts every element,
+// recycles the externref table slots, and frees the buffer itself — exactly
+// like wasm-bindgen's own JS glue for owned Vec params, which never frees the
+// buffer post-call. The wrapper must therefore NEVER free Ptr or re-read the
+// table indices from it after the export ran (doing so is a double free that
+// corrupts the dlmalloc heap). Only the Go refs registry entries — and, for
+// byte-array elements, the wrapper-allocated backing buffers — remain owned
+// by the wrapper and are released by release.
+type externRefArray struct {
+	ptr   uint32 // array buffer; owned by the guest once the export is called
+	count uint32
+	keys  []uintptr       // Go refs registry entries for the elements
+	elems  []uint8ArrayRef // wrapper-owned element backing buffers (byte arrays only)
+}
+
+// release frees everything the wrapper still owns after an export consumed
+// the array. It must be called after the export returned (success or domain
+// error). It never touches the array buffer or the externref table: the guest
+// consumed and freed those during the call.
+func (a *externRefArray) release(c *Client) {
+	for i, key := range a.keys {
+		if i < len(a.elems) {
+			c.freeWASM(a.elems[i].ptr, a.elems[i].len)
+		}
+		refs.free(key)
+	}
+}
+
+// discard frees everything including the array buffer. Only valid on error
+// paths where the export was never invoked, so the wrapper still owns it.
+func (a *externRefArray) discard(c *Client) {
+	a.release(c)
+	c.freeWASM(a.ptr, a.count*4)
+}
+
 // writeStringArray writes a []string as an array of WASM externref table indices in
 // WASM linear memory, matching the passArrayJsValueToWasm0 pattern.
-// Returns (ptr, count). Call freeStringArray to release.
-func (c *Client) writeStringArray(strs []string) (ptr, count uint32, err error) {
+// The returned array must be released after the consuming export runs
+// (release); discard it (discard) only if the export is never called.
+func (c *Client) writeStringArray(strs []string) (externRefArray, error) {
+	var arr externRefArray
 	if len(strs) == 0 {
-		return 0, 0, nil
+		return arr, nil
 	}
 	n := uint32(len(strs))
 
 	mallocResult, callErr := c.mod.ExportedFunction("__wbindgen_malloc").Call(c.ctx, uint64(n*4), 4)
 	if callErr != nil || len(mallocResult) == 0 {
-		return 0, 0, fmt.Errorf("mintlayer: malloc for string array: %w", callErr)
+		return arr, fmt.Errorf("mintlayer: malloc for string array: %w", callErr)
 	}
-	arrPtr := uint32(mallocResult[0])
+	arr.ptr = uint32(mallocResult[0])
+	arr.count = n
 
 	allocFn := c.mod.ExportedFunction("__externref_table_alloc")
 	if allocFn == nil {
-		c.freeWASM(arrPtr, n*4)
-		return 0, 0, fmt.Errorf("mintlayer: __externref_table_alloc not found")
+		arr.discard(c)
+		return externRefArray{}, fmt.Errorf("mintlayer: __externref_table_alloc not found")
 	}
 
-	tableIndices := make([]uint32, 0, n)
-	for _, s := range strs {
+	for i, s := range strs {
 		idxResult, err2 := allocFn.Call(c.ctx)
 		if err2 != nil || len(idxResult) == 0 {
-			// Cleanup already-allocated slots
-			for _, idx := range tableIndices {
-				key := getWASMTableRef(c.mod, externrefTableIndex, idx)
-				refs.free(key)
-			}
-			c.freeWASM(arrPtr, n*4)
-			return 0, 0, fmt.Errorf("mintlayer: __externref_table_alloc: %w", err2)
+			arr.discard(c) // export never called: wrapper still owns everything
+			return externRefArray{}, fmt.Errorf("mintlayer: __externref_table_alloc: %w", err2)
 		}
 		tableIdx := uint32(idxResult[0])
-		tableIndices = append(tableIndices, tableIdx)
 
 		// Store string in Go refs and wire it into the WASM table.
 		key := refs.alloc(s)
+		arr.keys = append(arr.keys, key)
 		setWASMTableRef(c.mod, externrefTableIndex, tableIdx, key)
 
 		var buf [4]byte
 		binary.LittleEndian.PutUint32(buf[:], tableIdx)
-		c.mod.Memory().Write(arrPtr+uint32(len(tableIndices)-1)*4, buf[:])
+		c.mod.Memory().Write(arr.ptr+uint32(i)*4, buf[:])
 	}
-	return arrPtr, n, nil
+	return arr, nil
 }
 
 // writeUint8ArrayArray writes a [][]byte as an array of WASM externref table indices.
 // Each byte slice is first copied into WASM heap and wrapped as a uint8ArrayRef.
-func (c *Client) writeUint8ArrayArray(slices [][]byte) (ptr, count uint32, err error) {
+// The element backing buffers stay wrapper-owned (the guest only copies from
+// them); see externRefArray for the ownership rules.
+func (c *Client) writeUint8ArrayArray(slices [][]byte) (externRefArray, error) {
+	var arr externRefArray
 	if len(slices) == 0 {
-		return 0, 0, nil
+		return arr, nil
 	}
 	n := uint32(len(slices))
 
 	mallocResult, callErr := c.mod.ExportedFunction("__wbindgen_malloc").Call(c.ctx, uint64(n*4), 4)
 	if callErr != nil || len(mallocResult) == 0 {
-		return 0, 0, fmt.Errorf("mintlayer: malloc for byte-array array: %w", callErr)
+		return arr, fmt.Errorf("mintlayer: malloc for byte-array array: %w", callErr)
 	}
-	arrPtr := uint32(mallocResult[0])
+	arr.ptr = uint32(mallocResult[0])
+	arr.count = n
 
 	allocFn := c.mod.ExportedFunction("__externref_table_alloc")
 	if allocFn == nil {
-		c.freeWASM(arrPtr, n*4)
-		return 0, 0, fmt.Errorf("mintlayer: __externref_table_alloc not found")
+		arr.discard(c)
+		return externRefArray{}, fmt.Errorf("mintlayer: __externref_table_alloc not found")
 	}
-
-	type allocation struct {
-		tableIdx uint32
-		wasmPtr  uint32
-		wasmLen  uint32
-	}
-	allocs := make([]allocation, 0, n)
 
 	for _, b := range slices {
 		wasmPtr, wasmLen, err2 := c.writeBytes(b)
 		if err2 != nil {
-			for _, a := range allocs {
-				key := getWASMTableRef(c.mod, externrefTableIndex, a.tableIdx)
-				refs.free(key)
-				c.freeWASM(a.wasmPtr, a.wasmLen)
-			}
-			c.freeWASM(arrPtr, n*4)
-			return 0, 0, fmt.Errorf("mintlayer: write bytes for array: %w", err2)
+			arr.discard(c) // export never called: wrapper still owns everything
+			return externRefArray{}, fmt.Errorf("mintlayer: write bytes for array: %w", err2)
 		}
 
 		idxResult, err2 := allocFn.Call(c.ctx)
 		if err2 != nil || len(idxResult) == 0 {
 			c.freeWASM(wasmPtr, wasmLen)
-			for _, a := range allocs {
-				key := getWASMTableRef(c.mod, externrefTableIndex, a.tableIdx)
-				refs.free(key)
-				c.freeWASM(a.wasmPtr, a.wasmLen)
-			}
-			c.freeWASM(arrPtr, n*4)
-			return 0, 0, fmt.Errorf("mintlayer: __externref_table_alloc: %w", err2)
+			arr.discard(c)
+			return externRefArray{}, fmt.Errorf("mintlayer: __externref_table_alloc: %w", err2)
 		}
 		tableIdx := uint32(idxResult[0])
 
 		key := refs.alloc(uint8ArrayRef{ptr: wasmPtr, len: wasmLen})
+		arr.keys = append(arr.keys, key)
+		arr.elems = append(arr.elems, uint8ArrayRef{ptr: wasmPtr, len: wasmLen})
 		setWASMTableRef(c.mod, externrefTableIndex, tableIdx, key)
-		allocs = append(allocs, allocation{tableIdx, wasmPtr, wasmLen})
 
 		var buf [4]byte
 		binary.LittleEndian.PutUint32(buf[:], tableIdx)
-		c.mod.Memory().Write(arrPtr+uint32(len(allocs)-1)*4, buf[:])
+		c.mod.Memory().Write(arr.ptr+uint32(len(arr.keys)-1)*4, buf[:])
 	}
-	return arrPtr, n, nil
-}
-
-// freeStringArray releases resources from writeStringArray.
-func (c *Client) freeStringArray(arrPtr, count uint32) {
-	if arrPtr == 0 {
-		return
-	}
-	deallocFn := c.mod.ExportedFunction("__externref_table_dealloc")
-	for i := uint32(0); i < count; i++ {
-		data, ok := c.mod.Memory().Read(arrPtr+i*4, 4)
-		if !ok {
-			continue
-		}
-		tableIdx := binary.LittleEndian.Uint32(data)
-		key := getWASMTableRef(c.mod, externrefTableIndex, tableIdx)
-		refs.free(key)
-		if deallocFn != nil {
-			deallocFn.Call(c.ctx, uint64(tableIdx)) //nolint:errcheck
-		}
-	}
-	c.freeWASM(arrPtr, count*4)
-}
-
-// freeUint8ArrayArray releases resources from writeUint8ArrayArray.
-func (c *Client) freeUint8ArrayArray(arrPtr, count uint32) {
-	if arrPtr == 0 {
-		return
-	}
-	deallocFn := c.mod.ExportedFunction("__externref_table_dealloc")
-	for i := uint32(0); i < count; i++ {
-		data, ok := c.mod.Memory().Read(arrPtr+i*4, 4)
-		if !ok {
-			continue
-		}
-		tableIdx := binary.LittleEndian.Uint32(data)
-		key := getWASMTableRef(c.mod, externrefTableIndex, tableIdx)
-		if v, ok2 := refs.get(key); ok2 {
-			if arr, ok3 := v.(uint8ArrayRef); ok3 {
-				c.freeWASM(arr.ptr, arr.len)
-			}
-		}
-		refs.free(key)
-		if deallocFn != nil {
-			deallocFn.Call(c.ctx, uint64(tableIdx)) //nolint:errcheck
-		}
-	}
-	c.freeWASM(arrPtr, count*4)
+	return arr, nil
 }
 
 // allocExternRef stores val in the Go refs registry and returns the key.
@@ -543,16 +521,6 @@ func setWASMTableRef(mod api.Module, tableIdx, refIdx uint32, val uintptr) {
 	}
 	refs := unsafe.Slice((*uintptr)(refsSlice.UnsafePointer()), refsSlice.Len())
 	refs[refIdx] = val
-}
-
-// getWASMTableRef reads a value from the WASM table.
-func getWASMTableRef(mod api.Module, tableIdx, refIdx uint32) uintptr {
-	refsSlice, ok := wasmTableRefsSlice(mod, tableIdx)
-	if !ok || int(refIdx) >= refsSlice.Len() {
-		return 0
-	}
-	refs := unsafe.Slice((*uintptr)(refsSlice.UnsafePointer()), refsSlice.Len())
-	return refs[refIdx]
 }
 
 // wasmTableRefsSlice returns the reflect.Value of the References slice for a table.

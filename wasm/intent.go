@@ -32,13 +32,18 @@ func (c *Client) EncodeSignedTransactionIntent(signedMessage []byte, signatures 
 	if err != nil {
 		return nil, err
 	}
-	sigsPtr, sigsLen, err := c.writeUint8ArrayArray(signatures)
+	// The signatures array buffer is owned by the guest once the export is
+	// invoked (it converts the elements and frees the buffer during the call);
+	// only the Go-side refs entries and the wrapper-owned element backing
+	// buffers are released afterwards. Freeing the array buffer here would be
+	// a double free corrupting the WASM heap.
+	sigs, err := c.writeUint8ArrayArray(signatures)
 	if err != nil {
 		return nil, err
 	}
-	defer c.freeUint8ArrayArray(sigsPtr, sigsLen)
+	defer sigs.release(c)
 	return c.callReturnBytes("encode_signed_transaction_intent",
-		uint64(msgPtr), uint64(msgLen), uint64(sigsPtr), uint64(sigsLen))
+		uint64(msgPtr), uint64(msgLen), uint64(sigs.ptr), uint64(sigs.count))
 }
 
 // VerifyTransactionIntent verifies a signed transaction intent.
@@ -54,14 +59,16 @@ func (c *Client) VerifyTransactionIntent(expectedSignedMessage, encodedSignedInt
 	if err != nil {
 		return err
 	}
-	destsPtr, destsLen, err := c.writeStringArray(inputDestinations)
+	// The destinations array buffer is owned by the guest once the export is
+	// invoked; only the Go-side refs entries are released afterwards.
+	dests, err := c.writeStringArray(inputDestinations)
 	if err != nil {
 		return err
 	}
-	defer c.freeStringArray(destsPtr, destsLen)
+	defer dests.release(c)
 	return c.callVoidFallible("verify_transaction_intent",
 		uint64(msgPtr), uint64(msgLen),
 		uint64(intentPtr), uint64(intentLen),
-		uint64(destsPtr), uint64(destsLen),
+		uint64(dests.ptr), uint64(dests.count),
 		uint64(network))
 }
