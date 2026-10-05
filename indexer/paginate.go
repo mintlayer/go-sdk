@@ -7,6 +7,7 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -192,6 +193,7 @@ func getPage[T any](ctx context.Context, c *Client, path string, query url.Value
 	if err != nil {
 		return nil, err
 	}
+	raw = bytes.TrimSpace(raw)
 	if len(raw) > 0 && raw[0] == '[' {
 		var items []T
 		if err := json.Unmarshal(raw, &items); err != nil {

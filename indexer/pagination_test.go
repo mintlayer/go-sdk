@@ -310,17 +310,23 @@ func TestTransactionsOffsetModeSinglePage(t *testing.T) {
 	}
 }
 
-func TestTransactionsCursorWithOffsetModeServerReject(t *testing.T) {
-	// cursor + offset_mode is a server 400 "Bad request", propagated as-is.
-	srv := errorHandler(t, http.StatusBadRequest, `{"error":"Bad request"}`)
-	defer srv.Close()
+func TestTransactionsCursorWithOffsetModeClientReject(t *testing.T) {
+	// cursor + offset_mode is rejected client-side with a RequestError before
+	// any request is made.
+	srv, reqs := routedServer(t, nil)
 	c := indexer.New(srv.URL)
 
 	_, err := c.ListTransactionsPage(context.Background(),
 		indexer.WithCursor("tx-cursor-2"), indexer.WithOffsetMode(indexer.OffsetModeLegacy))
-	var httpErr *indexer.HTTPError
-	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusBadRequest || httpErr.Message != "Bad request" {
-		t.Fatalf("err = %v, want 400 Bad request", err)
+	var reqErr *indexer.RequestError
+	if !errors.As(err, &reqErr) {
+		t.Fatalf("err = %v, want *indexer.RequestError", err)
+	}
+	if reqErr.Option != "WithOffsetMode" {
+		t.Fatalf("RequestError.Option = %q, want WithOffsetMode", reqErr.Option)
+	}
+	if len(*reqs) != 0 {
+		t.Fatalf("made %d requests, want 0 (rejected client-side)", len(*reqs))
 	}
 }
 
@@ -943,5 +949,45 @@ func TestPagerNilItemsWithCursor(t *testing.T) {
 	}
 	if len(*reqs) != 2 {
 		t.Fatalf("made %d requests, want 2", len(*reqs))
+	}
+}
+
+// TestTokenHoldersPagerDeferredOptionError pins that an invalid option passed
+// to TokenHoldersPager surfaces as a deferred RequestError on the first
+// NextPage instead of a nil-pointer panic (applyListOptions fails, so the
+// constructor must not capture a nil params pointer).
+func TestTokenHoldersPagerDeferredOptionError(t *testing.T) {
+	srv, reqs := routedServer(t, nil)
+	c := indexer.New(srv.URL)
+	ctx := context.Background()
+
+	pager := indexer.TokenHoldersPager(c, "ttml1qvalidaddress", indexer.WithItems(0))
+	_, err := pager.NextPage(ctx)
+	var reqErr *indexer.RequestError
+	if !errors.As(err, &reqErr) {
+		t.Fatalf("err = %v, want *indexer.RequestError", err)
+	}
+	if len(*reqs) != 0 {
+		t.Fatalf("made %d requests, want 0 (rejected before any request)", len(*reqs))
+	}
+}
+
+// TestBareArrayLeadingWhitespace pins that a legacy bare-array response with
+// leading whitespace still decodes as an offset page (sniffing happens after
+// whitespace is trimmed, not on a zero-value envelope).
+func TestBareArrayLeadingWhitespace(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "  %s  ", readFixture(t, "pools_offset.json"))
+	}))
+	defer srv.Close()
+	c := indexer.New(srv.URL)
+
+	pools, err := c.ListPools(context.Background(), indexer.PoolListOpts{})
+	if err != nil {
+		t.Fatalf("ListPools: %v", err)
+	}
+	if len(pools) != 1 {
+		t.Fatalf("got %d pools, want 1", len(pools))
 	}
 }

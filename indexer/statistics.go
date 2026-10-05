@@ -134,6 +134,9 @@ func TokenHoldersPager(c *Client, tokenID string, opts ...ListOption) *Pager[Hol
 	if err == nil && tokenID == "" {
 		err = &RequestError{Option: "tokenID", Reason: "must not be empty"}
 	}
+	if err != nil {
+		return fail[Holder](err)
+	}
 	return NewPager(func(ctx context.Context, cursor *string) ([]Holder, *string, bool, error) {
 		fetch := p
 		if cursor != nil {

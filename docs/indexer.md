@@ -68,7 +68,7 @@ Options:
 | `WithCursor(cur)` | all cursor endpoints | resume from a server-issued cursor. Cursors are opaque: never construct, decode, or modify one — a fabricated or cross-endpoint cursor is rejected with 400 `Invalid cursor`. |
 | `WithOffset(n)` | pools, transactions | offset of an offset-based listing. On the holders/order-book endpoints the cursor defines the page position server-side and the offset is ignored (`items` still applies); the SDK sends both parameters as-is. |
 | `WithSort(s)` | pools | `"by_height"` (default) or `"by_pledge"`; any other value fails client-side. Only the default creation-height sort supports cursors: any other sort value combined with a cursor is rejected by the server with 400 `Bad request`. |
-| `WithOffsetMode(m)` | transactions | `"legacy"` (default) or `"absolute"`; selects the offset-based listing, which has no cursors. Combining a cursor with `offset_mode` is rejected by the server with 400 `Bad request`. |
+| `WithOffsetMode(m)` | transactions | `"legacy"` (default) or `"absolute"`; selects the offset-based listing, which has no cursors. Combining a cursor with `offset_mode` is rejected client-side with a `*RequestError`. |
 | `WithSide(s)` | order book | `"ask"` or `"bid"` — required for the book. Cursors are side-specific (`book-ask` / `book-bid`): an ask cursor on a bid walk returns 400 `Invalid cursor`. |
 
 Invalid combinations and values fail client-side with `*indexer.RequestError` before any request is sent. Server-side rejections (400/404) are returned as `*indexer.HTTPError` with `Kind` and sentinel matching — see [Errors](#errors).
@@ -172,7 +172,7 @@ Returns a paginated list of confirmed transactions across the entire chain, orde
 func (c *Client) ListTransactionsPage(ctx context.Context, opts ...ListOption) (*CursorPage[Transaction], error)
 ```
 
-One page of the global transaction listing as a cursor envelope; pass `NextCursor` to `WithCursor` (or use `TransactionsPager`) to continue the walk. `WithOffsetMode("legacy"|"absolute")` selects the offset-based listing instead, which has no cursors (such a page arrives with a nil `NextCursor`). Combining a cursor with `offset_mode` is rejected by the server with 400 `Bad request`. Per-block transaction listings remain offset-based (see `GetBlockTransactionIDs`).
+One page of the global transaction listing as a cursor envelope; pass `NextCursor` to `WithCursor` (or use `TransactionsPager`) to continue the walk. `WithOffsetMode("legacy"|"absolute")` selects the offset-based listing instead, which has no cursors (such a page arrives with a nil `NextCursor`). Combining a cursor with `offset_mode` is rejected client-side with a `*RequestError`. Per-block transaction listings remain offset-based (see `GetBlockTransactionIDs`).
 
 ### `TransactionsPager`
 

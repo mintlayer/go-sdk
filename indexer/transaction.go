@@ -40,6 +40,9 @@ func (c *Client) fetchTransactions(ctx context.Context, p *listParams) ([]Transa
 	if err := p.reject("ListTransactionsPage", paramSide|paramSort); err != nil {
 		return nil, nil, false, err
 	}
+	if p.set&(paramCursor|paramOffsetMode) == (paramCursor | paramOffsetMode) {
+		return nil, nil, false, &RequestError{Option: "WithOffsetMode", Reason: "cannot be combined with WithCursor"}
+	}
 	page, err := getPage[Transaction](ctx, c, "/transaction", transactionsQuery(p))
 	return pageResult(page, err)
 }
@@ -50,8 +53,8 @@ func (c *Client) fetchTransactions(ctx context.Context, p *listParams) ([]Transa
 // in block order within each block; Transaction.BlockID carries the hash of
 // the confirming block ("" for pending/mempool transactions).
 //
-// Combining WithCursor with WithOffsetMode is rejected by the server with
-// 400 "Bad request". WithOffsetMode (legacy or absolute) selects the
+// Combining WithCursor with WithOffsetMode is rejected client-side with a
+// *RequestError. WithOffsetMode (legacy or absolute) selects the
 // offset-based listing instead, which has no cursors — such a page arrives as
 // a bare array and is returned with a nil NextCursor. Per-block transaction
 // listings remain offset-based (see the block endpoints).
