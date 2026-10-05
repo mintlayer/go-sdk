@@ -150,8 +150,10 @@ func listTransactionsWithOffsetMode(ctx context.Context, c *indexer.Client) {
 }
 
 // walkPools walks the pools listing. Only the default creation-height sort
-// supports cursors: WithSort(indexer.SortByPledge) plus a cursor is rejected
-// by the server with 400 Bad request.
+// supports cursors: PoolsPager rejects any other sort client-side with a
+// *RequestError before sending anything, and the server answers 400 Bad
+// request when ListPoolsPage combines an explicit cursor with a non-default
+// sort.
 func walkPools(ctx context.Context, c *indexer.Client, items uint32) {
 	fmt.Println("== Pools (cursor walk, by_height) ==")
 
@@ -165,6 +167,11 @@ func walkPools(ctx context.Context, c *indexer.Client, items uint32) {
 		return true
 	})
 	if err != nil {
+		var reqErr *indexer.RequestError
+		if errors.As(err, &reqErr) {
+			log.Printf("pools walk rejected client-side (cursor walks need the default by_height sort): %v", err)
+			return
+		}
 		var httpErr *indexer.HTTPError
 		if errors.As(err, &httpErr) && httpErr.Kind == indexer.ErrorKindBadRequest {
 			log.Printf("pools walk rejected by the server (sort+cursor combinations are invalid): %v", err)
