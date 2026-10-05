@@ -28,6 +28,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/mintlayer/go-sdk/indexer"
@@ -56,32 +57,43 @@ func main() {
 		return context.WithTimeout(ctx, 30*time.Second)
 	}
 
-	wc, cancelWalk := walkCtx()
-	walkCoinHolders(wc, c, uint32(*items))
-	cancelWalk()
+	// Every walk reports its failure to main so a non-zero exit marks the
+	// run as failed (usable as a smoke check in CI).
+	failed := false
+	run := func(name string, walk func(context.Context) error) {
+		wctx, cancelWalk := walkCtx()
+		defer cancelWalk()
+		if err := walk(wctx); err != nil {
+			log.Printf("%s: %v", name, err)
+			failed = true
+		}
+	}
 
-	tc, cancelWalk := walkCtx()
-	walkTransactionsWithCursor(tc, c, uint32(*items))
-	cancelWalk()
-
-	oc, cancelWalk := walkCtx()
-	listTransactionsWithOffsetMode(oc, c)
-	cancelWalk()
-
-	pc, cancelWalk := walkCtx()
-	walkPools(pc, c, uint32(*items))
-	cancelWalk()
-
+	run("coin holders walk", func(ctx context.Context) error {
+		return walkCoinHolders(ctx, c, uint32(*items))
+	})
+	run("transactions walk", func(ctx context.Context) error {
+		return walkTransactionsWithCursor(ctx, c, uint32(*items))
+	})
+	run("offset listing", func(ctx context.Context) error {
+		return listTransactionsWithOffsetMode(ctx, c)
+	})
+	run("pools walk", func(ctx context.Context) error {
+		return walkPools(ctx, c, uint32(*items))
+	})
 	if *pair != "" {
-		bc, cancelWalk := walkCtx()
-		walkOrderBook(bc, c, *pair, uint32(*items))
-		cancelWalk()
+		run("order book walk", func(ctx context.Context) error {
+			return walkOrderBook(ctx, c, *pair, uint32(*items))
+		})
+	}
+	if failed {
+		os.Exit(1)
 	}
 }
 
 // walkCoinHolders pages through the native coin holders, largest balance
 // first, until the server runs out of cursors.
-func walkCoinHolders(ctx context.Context, c *indexer.Client, items uint32) {
+func walkCoinHolders(ctx context.Context, c *indexer.Client, items uint32) error {
 	fmt.Println("== Coin holders (cursor walk) ==")
 
 	pager := indexer.CoinHoldersPager(c, indexer.WithItems(items))
@@ -94,16 +106,16 @@ func walkCoinHolders(ctx context.Context, c *indexer.Client, items uint32) {
 		return true
 	})
 	if err != nil {
-		log.Printf("coin holders walk: %v", err)
-		return
+		return err
 	}
 	fmt.Printf("  ... %d holders in total\n\n", n)
+	return nil
 }
 
 // walkTransactionsWithCursor walks the global transaction listing (newest
 // block first, transactions in block order within each block). BlockID is the
 // confirming block's hash; it is empty for pending (mempool) transactions.
-func walkTransactionsWithCursor(ctx context.Context, c *indexer.Client, items uint32) {
+func walkTransactionsWithCursor(ctx context.Context, c *indexer.Client, items uint32) error {
 	fmt.Println("== Global transactions (cursor walk) ==")
 
 	pager := indexer.TransactionsPager(c, indexer.WithItems(items))
@@ -111,8 +123,7 @@ func walkTransactionsWithCursor(ctx context.Context, c *indexer.Client, items ui
 	for {
 		page, err := pager.NextPage(ctx)
 		if err != nil {
-			log.Printf("transactions walk: %v", err)
-			return
+			return err
 		}
 		if page == nil {
 			break // nil NextCursor from the server: listing exhausted
@@ -124,12 +135,13 @@ func walkTransactionsWithCursor(ctx context.Context, c *indexer.Client, items ui
 		}
 	}
 	fmt.Printf("  done; %d pending transactions seen\n\n", pending)
+	return nil
 }
 
 // listTransactionsWithOffsetMode uses the offset-based listing instead of a
 // cursor walk. offset_mode=absolute treats the offset as an absolute
 // tx_global_index boundary; the two styles cannot be combined (server 400).
-func listTransactionsWithOffsetMode(ctx context.Context, c *indexer.Client) {
+func listTransactionsWithOffsetMode(ctx context.Context, c *indexer.Client) error {
 	fmt.Println("== Global transactions (offset_mode=absolute) ==")
 
 	page, err := c.ListTransactionsPage(ctx,
@@ -138,8 +150,7 @@ func listTransactionsWithOffsetMode(ctx context.Context, c *indexer.Client) {
 		indexer.WithItems(5),
 	)
 	if err != nil {
-		log.Printf("offset listing: %v", err)
-		return
+		return err
 	}
 	// Offset-mode pages have no cursors: NextCursor is always nil here.
 	for _, tx := range page.Items {
@@ -147,6 +158,7 @@ func listTransactionsWithOffsetMode(ctx context.Context, c *indexer.Client) {
 	}
 	fmt.Printf("  (%d transactions; offset listings have no NextCursor: %v)\n\n",
 		len(page.Items), page.NextCursor == nil)
+	return nil
 }
 
 // walkPools walks the pools listing. Only the default creation-height sort
@@ -154,7 +166,7 @@ func listTransactionsWithOffsetMode(ctx context.Context, c *indexer.Client) {
 // *RequestError before sending anything, and the server answers 400 Bad
 // request when ListPoolsPage combines an explicit cursor with a non-default
 // sort.
-func walkPools(ctx context.Context, c *indexer.Client, items uint32) {
+func walkPools(ctx context.Context, c *indexer.Client, items uint32) error {
 	fmt.Println("== Pools (cursor walk, by_height) ==")
 
 	pager := indexer.PoolsPager(c, indexer.WithItems(items))
@@ -169,25 +181,23 @@ func walkPools(ctx context.Context, c *indexer.Client, items uint32) {
 	if err != nil {
 		var reqErr *indexer.RequestError
 		if errors.As(err, &reqErr) {
-			log.Printf("pools walk rejected client-side (cursor walks need the default by_height sort): %v", err)
-			return
+			return fmt.Errorf("rejected client-side (cursor walks need the default by_height sort): %w", err)
 		}
 		var httpErr *indexer.HTTPError
 		if errors.As(err, &httpErr) && httpErr.Kind == indexer.ErrorKindBadRequest {
-			log.Printf("pools walk rejected by the server (sort+cursor combinations are invalid): %v", err)
-			return
+			return fmt.Errorf("rejected by the server (sort+cursor combinations are invalid): %w", err)
 		}
-		log.Printf("pools walk: %v", err)
-		return
+		return err
 	}
 	fmt.Printf("  ... %d pools in total\n\n", n)
+	return nil
 }
 
 // walkOrderBook walks both sides of the order book. Cursors are side-specific
 // (book-ask vs book-bid), and a page truncated at the server's aggregation cap
 // (10000 orders) carries no continuation cursor: the walk stops there even
 // though the book is incomplete.
-func walkOrderBook(ctx context.Context, c *indexer.Client, pair string, items uint32) {
+func walkOrderBook(ctx context.Context, c *indexer.Client, pair string, items uint32) error {
 	fmt.Printf("== Order book %s ==\n", pair)
 
 	for _, side := range []string{indexer.SideAsk, indexer.SideBid} {
@@ -207,8 +217,7 @@ func walkOrderBook(ctx context.Context, c *indexer.Client, pair string, items ui
 			return true
 		})
 		if err != nil {
-			log.Printf("%s book walk: %v", side, err)
-			continue
+			return fmt.Errorf("%s book walk: %w", side, err)
 		}
 		if pager.Truncated() {
 			fmt.Printf("  ... %d levels shown; BOOK TRUNCATED at the aggregation cap — no continuation cursor exists\n", n)
@@ -217,6 +226,7 @@ func walkOrderBook(ctx context.Context, c *indexer.Client, pair string, items ui
 		}
 	}
 	fmt.Println()
+	return nil
 }
 
 func orDash(s string) string {

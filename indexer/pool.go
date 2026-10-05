@@ -58,8 +58,10 @@ func (c *Client) fetchPools(ctx context.Context, p *listParams) ([]Pool, *string
 // cursor — see WithSort).
 //
 // The default sort is the only cursor-compatible one: combining WithCursor
-// (or the walk of a pager) with WithSort(SortByPledge) is rejected by the
-// server with 400 "Bad request".
+// with WithSort(SortByPledge) is rejected by the server with 400 "Bad
+// request" and propagated as *HTTPError — only PoolsPager validates this
+// combination client-side (with a *RequestError), matching the api-server
+// contract this method mirrors.
 //
 // When WithOffset is set without a cursor, the cursor silently overrides the
 // offset page position server-side (items still applies); the SDK sends both

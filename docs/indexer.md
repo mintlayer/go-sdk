@@ -67,7 +67,7 @@ Options:
 | `WithItems(n)` | all | page size, accepted range 1..100 (`MaxNumItems`). The server rejects `items=0` with 400 `Invalid number of items` on every paginated endpoint, offset-based included; the SDK validates client-side. |
 | `WithCursor(cur)` | all cursor endpoints | resume from a server-issued cursor. Cursors are opaque: never construct, decode, or modify one — a fabricated or cross-endpoint cursor is rejected with 400 `Invalid cursor`. |
 | `WithOffset(n)` | pools, transactions | offset of an offset-based listing. On the holders/order-book endpoints the cursor defines the page position server-side and the offset is ignored (`items` still applies); the SDK sends both parameters as-is. |
-| `WithSort(s)` | pools | `"by_height"` (default) or `"by_pledge"`; any other value fails client-side. Only the default creation-height sort supports cursors: any other sort value combined with a cursor is rejected by the server with 400 `Bad request`. |
+| `WithSort(s)` | pools | `"by_height"` (default) or `"by_pledge"`; any other value fails client-side. Only the default creation-height sort supports cursors: on `ListPoolsPage` any other sort combined with a cursor is rejected by the server with 400 `Bad request` and propagated as `*HTTPError`; `PoolsPager` rejects the same combination client-side with a `*RequestError`. |
 | `WithOffsetMode(m)` | transactions | `"legacy"` (default) or `"absolute"`; selects the offset-based listing, which has no cursors. Combining a cursor with `offset_mode` is rejected client-side with a `*RequestError`. |
 | `WithSide(s)` | order book | `"ask"` or `"bid"` — required for the book. Cursors are side-specific (`book-ask` / `book-bid`): an ask cursor on a bid walk returns 400 `Invalid cursor`. |
 
@@ -334,7 +334,7 @@ type PoolListOpts struct {
 func (c *Client) ListPoolsPage(ctx context.Context, opts ...ListOption) (*CursorPage[Pool], error)
 ```
 
-One page of staking pools as a cursor envelope (newest creation height first by default); pass `NextCursor` to `WithCursor` (or use `PoolsPager`) to continue the walk. The default creation-height sort is the only cursor-compatible one: `WithSort("by_pledge")` together with a cursor is rejected by the server with 400 `Bad request`, and without a cursor a non-default sort takes the offset path (no cursors, single page).
+One page of staking pools as a cursor envelope (newest creation height first by default); pass `NextCursor` to `WithCursor` (or use `PoolsPager`) to continue the walk. The default creation-height sort is the only cursor-compatible one: `WithSort("by_pledge")` together with a cursor is rejected by the server with 400 `Bad request` and propagated as `*HTTPError` (only `PoolsPager` validates it client-side), and without a cursor a non-default sort takes the offset path (no cursors, single page).
 
 ### `PoolsPager`
 
