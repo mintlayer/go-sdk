@@ -991,3 +991,31 @@ func TestBareArrayLeadingWhitespace(t *testing.T) {
 		t.Fatalf("got %d pools, want 1", len(pools))
 	}
 }
+
+// TestPagerNextCursorDefensiveCopy pins that mutating the string behind the
+// pointer returned by NextCursor does not corrupt the pager's resume position.
+func TestPagerNextCursorDefensiveCopy(t *testing.T) {
+	srv, reqs := routedServer(t, []route{
+		{cursor: "", file: "holders_page1.json"},
+		{cursor: "holders-cursor-2", file: "holders_page2.json"},
+	})
+	c := indexer.New(srv.URL)
+	ctx := context.Background()
+
+	pager := indexer.CoinHoldersPager(c)
+	if _, err := pager.NextPage(ctx); err != nil {
+		t.Fatalf("NextPage: %v", err)
+	}
+	cur := pager.NextCursor()
+	if cur == nil || *cur != "holders-cursor-2" {
+		t.Fatalf("NextCursor = %v, want holders-cursor-2", cur)
+	}
+	*cur = "corrupted-by-caller"
+
+	if _, err := pager.NextPage(ctx); err != nil {
+		t.Fatalf("NextPage after mutation: %v", err)
+	}
+	if len(*reqs) != 2 {
+		t.Fatalf("made %d requests, want 2", len(*reqs))
+	}
+}

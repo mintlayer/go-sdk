@@ -168,12 +168,15 @@ func (p *Pager[T]) Walk(ctx context.Context, fn func(item T) bool) error {
 // from this cursor in a fresh pager skips them, so only persist it once the
 // current page has been consumed fully — or keep using the same pager, which
 // serves the remainder first. The returned string is the same value the server
-// delivered; it is never constructed or modified client-side.
+// delivered; it is never constructed or modified client-side. The value is
+// defensively copied, so mutating it does not affect the pager's resume
+// position.
 func (p *Pager[T]) NextCursor() *string {
-	if !p.started {
+	if !p.started || p.cursor == nil {
 		return nil
 	}
-	return p.cursor
+	v := *p.cursor
+	return &v
 }
 
 // Truncated reports whether the last fetched page was a truncated order-book
