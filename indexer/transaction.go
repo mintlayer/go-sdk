@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 )
 
 // ListTransactions returns paginated transactions.
@@ -19,6 +20,75 @@ func (c *Client) ListTransactions(ctx context.Context, opts PageOpts) ([]Transac
 		return nil, err
 	}
 	return result, nil
+}
+
+// transactionsQuery renders the listing query for the global transaction path.
+// offset_mode selects the offset-based listing (no cursors); a cursor combined
+// with offset_mode is rejected by the server with 400 "Bad request", which the
+// SDK propagates when an explicit cursor is requested alongside it.
+func transactionsQuery(p *listParams) url.Values {
+	forceCursor := p.cursor != "" || p.offsetMode == ""
+	q := p.listQuery(forceCursor)
+	if p.offsetMode != "" {
+		q.Set("offset_mode", p.offsetMode)
+	}
+	return q
+}
+
+// fetchTransactions fetches one page of the global transaction listing.
+func (c *Client) fetchTransactions(ctx context.Context, p *listParams) ([]Transaction, *string, bool, error) {
+	if err := p.reject("ListTransactionsPage", paramSide|paramSort); err != nil {
+		return nil, nil, false, err
+	}
+	page, err := getPage[Transaction](ctx, c, "/transaction", transactionsQuery(p))
+	return pageResult(page, err)
+}
+
+// ListTransactionsPage returns one page of the global transaction listing as a
+// cursor page; pass NextCursor to WithCursor (or use TransactionsPager) to
+// continue the walk. The listing is ordered newest block first, transactions
+// in block order within each block; Transaction.BlockID carries the hash of
+// the confirming block ("" for pending/mempool transactions).
+//
+// Combining WithCursor with WithOffsetMode is rejected by the server with
+// 400 "Bad request". WithOffsetMode (legacy or absolute) selects the
+// offset-based listing instead, which has no cursors — such a page arrives as
+// a bare array and is returned with a nil NextCursor. Per-block transaction
+// listings remain offset-based (see the block endpoints).
+//
+// Page stability is only guaranteed once the indexer's scanner is fully caught
+// up; a walk during catch-up or a reorg may skip or repeat an entry.
+func (c *Client) ListTransactionsPage(ctx context.Context, opts ...ListOption) (*CursorPage[Transaction], error) {
+	p, err := applyListOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	items, next, _, err := c.fetchTransactions(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return &CursorPage[Transaction]{Items: items, NextCursor: next}, nil
+}
+
+// TransactionsPager returns a pager that walks the global transaction listing
+// (newest block first, transactions in block order within each block),
+// following the server cursor automatically. It cannot be combined with
+// WithOffsetMode; see ListTransactionsPage.
+func TransactionsPager(c *Client, opts ...ListOption) *Pager[Transaction] {
+	p, err := applyListOptions(opts)
+	if err != nil {
+		return fail[Transaction](err)
+	}
+	if err := p.reject("TransactionsPager", paramSide|paramSort|paramOffsetMode); err != nil {
+		return fail[Transaction](err)
+	}
+	return NewPager(func(ctx context.Context, cursor *string) ([]Transaction, *string, bool, error) {
+		fetch := p
+		if cursor != nil {
+			fetch = cloneParams(fetch, *cursor)
+		}
+		return c.fetchTransactions(ctx, fetch)
+	})
 }
 
 // GetTransaction returns the transaction with the given id (hex).

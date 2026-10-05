@@ -81,7 +81,9 @@ type Block struct {
 }
 
 // Transaction is returned by GetTransaction and ListTransactions.
-// BlockID, Timestamp, and Confirmations are empty strings for unconfirmed transactions.
+// BlockID is the hash of the block that confirmed the transaction (not the
+// block height); for unconfirmed (mempool) transactions BlockID, Timestamp,
+// and Confirmations are empty strings.
 type Transaction struct {
 	ID            string          `json:"id"`
 	Inputs        json.RawMessage `json:"inputs"`
@@ -136,13 +138,13 @@ type DelegationInfo struct {
 
 // Pool is one entry returned by ListPools and GetPool.
 type Pool struct {
-	PoolID                  string `json:"pool_id"`
-	DecommissionDestination string `json:"decommission_destination"`
-	StakerBalance           Amount `json:"staker_balance"`
+	PoolID                  string      `json:"pool_id"`
+	DecommissionDestination string      `json:"decommission_destination"`
+	StakerBalance           Amount      `json:"staker_balance"`
 	MarginRatioPerThousand  PerThousand `json:"margin_ratio_per_thousand"`
-	CostPerBlock            Amount `json:"cost_per_block"`
-	VRFPublicKey            string `json:"vrf_public_key"`
-	DelegationsBalance      Amount `json:"delegations_balance"`
+	CostPerBlock            Amount      `json:"cost_per_block"`
+	VRFPublicKey            string      `json:"vrf_public_key"`
+	DelegationsBalance      Amount      `json:"delegations_balance"`
 }
 
 // Delegation is returned by GetDelegation.
@@ -221,11 +223,64 @@ type Order struct {
 }
 
 // CoinStats is returned by GetCoinStatistics and GetTokenStatistics.
+// All four counters are always present in api-server v2 (1.4.1 and later):
+// a counter that has never been written renders as zero (atoms "0"), so
+// clients may read the fields directly without nil/emptiness checks.
 type CoinStats struct {
 	CirculatingSupply Amount `json:"circulating_supply"`
 	Preminted         Amount `json:"preminted"`
 	Burned            Amount `json:"burned"`
 	Staked            Amount `json:"staked"`
+}
+
+// Holder is one entry of the coin/token holders listing
+// (ListCoinHolders / ListTokenHolders). Amount.Decimal is rendered with the
+// decimals of the listed currency: 9 for the native coin, the token's
+// number_of_decimals for tokens.
+type Holder struct {
+	Address string `json:"address"`
+	Amount  Amount `json:"amount"`
+}
+
+// OrderBookPrice is the aggregated price of an order-book level.
+// Atoms is the exact price as a reduced rational number "<numer>/<denom>"
+// (remaining quote atoms per remaining base atom, in atoms); Decimal is the
+// server's decimal rendering of that rational, floored toward zero and scaled
+// to the quote currency's decimals. Never parse or construct Atoms yourself:
+// it is only meaningful as an opaque exact value.
+type OrderBookPrice struct {
+	Atoms   string `json:"atoms"`
+	Decimal string `json:"decimal"`
+}
+
+// OrderBookLevel is one aggregated price level of an order book; Amount is
+// the total remaining base-currency amount across all orders at Price.
+type OrderBookLevel struct {
+	Price  OrderBookPrice `json:"price"`
+	Amount Amount         `json:"amount"`
+}
+
+// OrderBookPage is one page of the order book (GetOrderBook / OrderBookPager).
+// The exact rational Price.Atoms plus the floored Price.Decimal match the
+// Amount conventions used across this package.
+//
+// Truncated is true when the server hit its per-request aggregation cap
+// (OrderBookMaxOrders live orders scanned): Levels is an incomplete
+// aggregation of the book, and — as an invariant — NextCursor is then always
+// nil, because the walk cannot be continued from a partial aggregation. A
+// non-truncated page with no further levels also has a nil NextCursor
+// (end of book). Check Truncated before treating a nil NextCursor as "book
+// fully consumed".
+type OrderBookPage struct {
+	// Levels holds the aggregated price levels of this page, best price first
+	// (ascending for the ask side, descending for the bid side).
+	Levels []OrderBookLevel `json:"items"`
+	// Truncated is absent (false) in the JSON unless the server reported the
+	// aggregation-cap overflow.
+	Truncated bool `json:"truncated,omitempty"`
+	// NextCursor is the server-issued cursor of the next page, or nil at the
+	// end of the book — and always when Truncated is true.
+	NextCursor *string `json:"next_cursor"`
 }
 
 // pageQuery converts PageOpts to url.Values, omitting zero-value fields.

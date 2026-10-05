@@ -1,0 +1,21 @@
+{
+  "items": [
+    {
+      "id": "0f966c8a1b2c3d4e5f60718293a4b5c6d7e8f900123456789abcdef0123456789",
+      "inputs": [{ "input": { "type": "UTXO", "id": "1122334455667788", "index": 0 } }],
+      "outputs": [{ "output": { "type": "Transfer", "destination": "address1q9li0gt3cycwvugy2gykstrskx525jldpqfu9s", "amount": { "atoms": "100000000", "decimal": "0.100000000" } } }],
+      "block_id": "aa11456bd8f83b02f0f5e4b1c1a2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4e",
+      "timestamp": "1739520000",
+      "confirmations": "12"
+    },
+    {
+      "id": "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100",
+      "inputs": [],
+      "outputs": [],
+      "block_id": null,
+      "timestamp": "1739520100",
+      "confirmations": "0"
+    }
+  ],
+  "next_cursor": "tx-cursor-2"
+}

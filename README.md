@@ -14,7 +14,7 @@ Requires Go 1.21+. No CGO. The WASM cryptography runtime is embedded in the bina
 
 | Guide | Description |
 |-------|-------------|
-| [docs/indexer.md](docs/indexer.md) | Full indexer client reference: chain, blocks, transactions, addresses, pools, tokens, orders, statistics |
+| [docs/indexer.md](docs/indexer.md) | Full indexer client reference: chain, blocks, transactions, addresses, pools, tokens, orders, statistics, cursor pagination |
 | [docs/node.md](docs/node.md) | Full node client reference: chainstate, mempool, P2P, block submission |
 | [docs/wallet.md](docs/wallet.md) | Full wallet client reference: lifecycle, accounts, balances, transactions |
 | [docs/wasm.md](docs/wasm.md) | Full WASM client reference: keys, addresses, inputs, outputs, signing, fees |
@@ -165,6 +165,14 @@ info, err := c.GetAddressInfo(ctx, "mxtc1...")
 pools, err := c.ListPools(ctx, indexer.PoolListOpts{Sort: "by_pledge"})
 pool, err := c.GetPool(ctx, "pool1...")
 
+// Cursor-paginated listings (pools, transactions, holders, order book)
+holderPager := indexer.CoinHoldersPager(c)
+err := holderPager.Walk(ctx, func(h indexer.Holder) bool {
+    fmt.Println(h.Address, h.Amount.Decimal)
+    return true
+})
+book, err := c.GetOrderBook(ctx, "ML_tmltken1...", indexer.WithSide(indexer.SideAsk))
+
 // Tokens
 token, err := c.GetToken(ctx, "ttml1...")
 tokens, err := c.FindTokensByTicker(ctx, "MYTOKEN", indexer.PageOpts{Items: 10})
@@ -177,7 +185,7 @@ order, err := c.GetOrder(ctx, "order1...")
 stats, err := c.GetCoinStatistics(ctx)
 ```
 
-Non-2xx responses are returned as `*indexer.HTTPError` with a `StatusCode` field.
+Non-2xx responses are returned as `*indexer.HTTPError` with a `StatusCode` field. The well-known api-server v2 errors are classified in `Kind` and match the `ErrInvalidCursor`, `ErrInvalidNumItems`, and `ErrTokenNotFound` sentinels via `errors.Is`; invalid option values fail client-side with `*indexer.RequestError`.
 
 ---
 
@@ -333,6 +341,7 @@ that only import the top-level package do not need to also import `github.com/mi
 |---|---|
 | [examples/send-coins/](examples/send-coins/main.go) | Derive key → fetch UTXOs → build, sign, and submit a transaction |
 | [examples/issue-token/](examples/issue-token/main.go) | Issue a fungible token and mint an initial supply via the wallet daemon |
+| [examples/indexer-paging/](examples/indexer-paging/main.go) | Cursor-paginated indexer listings: holders walk, both-side order book, transactions with cursor and offset_mode, pools |
 
 ---
 
@@ -369,5 +378,6 @@ Pass the network constant to any function that derives addresses or encodes tran
 
 - `node.RPCError` — JSON-RPC error from the node daemon (`Code`, `Message`)
 - `wallet.RPCError` — JSON-RPC error from the wallet daemon
-- `indexer.HTTPError` — non-2xx HTTP response from the indexer (`StatusCode`, `Body`)
+- `indexer.HTTPError` — non-2xx HTTP response from the indexer (`StatusCode`, `Body`, `Message`, `Kind`); `errors.Is` matches the `indexer.ErrInvalidCursor` / `indexer.ErrInvalidNumItems` / `indexer.ErrTokenNotFound` sentinels
+- `indexer.RequestError` — request rejected client-side before it was sent (invalid `WithItems`/`WithCursor`/`WithSide`/… value or combination), with `Option` and `Reason`
 - WASM errors are plain `error` values with a descriptive message prefixed by `mintlayer:`.

@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "price": { "atoms": "1/3", "decimal": "0.333333333" }, "amount": { "atoms": "5000000000", "decimal": "5.000000000" } },
+    { "price": { "atoms": "2/3", "decimal": "0.666666666" }, "amount": { "atoms": "1000000000", "decimal": "1.000000000" } }
+  ],
+  "next_cursor": "book-ask-cursor-2"
+}

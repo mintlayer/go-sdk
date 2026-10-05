@@ -20,9 +20,18 @@ import (
 )
 
 // HTTPError is returned when the server responds with a non-2xx status code.
+// Message carries the server's "error" field (the JSON body is preserved in
+// Body), and Kind classifies the well-known api-server v2 error responses —
+// see ErrorKind and the ErrInvalidCursor / ErrInvalidNumItems / ErrTokenNotFound
+// sentinels, which errors.Is matches against.
 type HTTPError struct {
 	StatusCode int
 	Body       string
+	// Message is the value of the server's {"error": ...} field, or the raw
+	// body when the response is not that JSON shape.
+	Message string
+	// Kind classifies the response; ErrorKindOther when unrecognised.
+	Kind ErrorKind
 }
 
 func (e *HTTPError) Error() string {
@@ -85,9 +94,13 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, out any
 	}
 	defer resp.Body.Close()
 
+	// classify non-2xx responses once at the transport boundary so every
+	// endpoint method (and the paginator) returns typed errors for free.
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(body))}
+		trimmed := strings.TrimSpace(string(body))
+		message, kind := classifyError(resp.StatusCode, trimmed)
+		return &HTTPError{StatusCode: resp.StatusCode, Body: trimmed, Message: message, Kind: kind}
 	}
 
 	if out != nil {
@@ -116,7 +129,9 @@ func (c *Client) post(ctx context.Context, path string, body string, out any) er
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(respBody))}
+		trimmed := strings.TrimSpace(string(respBody))
+		message, kind := classifyError(resp.StatusCode, trimmed)
+		return &HTTPError{StatusCode: resp.StatusCode, Body: trimmed, Message: message, Kind: kind}
 	}
 
 	if out != nil {

@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "price": { "atoms": "1/2", "decimal": "0.500000000" }, "amount": { "atoms": "2500000000", "decimal": "2.500000000" } }
+  ],
+  "truncated": true,
+  "next_cursor": null
+}

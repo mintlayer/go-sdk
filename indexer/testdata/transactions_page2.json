@@ -1,0 +1,13 @@
+{
+  "items": [
+    {
+      "id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "inputs": [],
+      "outputs": [],
+      "block_id": "bb22456bd8f83b02f0f5e4b1c1a2d3e4f5061728394a5b6c7d8e9f0a1b2c3d4ef",
+      "timestamp": "1739510000",
+      "confirmations": "34"
+    }
+  ],
+  "next_cursor": null
+}
