@@ -919,8 +919,10 @@ func TestTokenHoldersEmptyTokenID(t *testing.T) {
 }
 
 // TestPagerNilItemsWithCursor pins that a fetched page with a null/empty items
-// array is normalized to a non-nil slice, so page == nil uniquely means the
-// walk is finished even when the server still issued a cursor.
+// array is normalized to a non-nil slice (so page == nil uniquely means the
+// walk is finished), and that an empty page ends the walk without a
+// continuation request: the api-server issues a cursor only alongside items,
+// so an empty page with a cursor would mean a non-compliant peer.
 func TestPagerNilItemsWithCursor(t *testing.T) {
 	srv, reqs := routedServer(t, []route{
 		{cursor: "", file: "holders_page_empty_items.json"},
@@ -944,11 +946,11 @@ func TestPagerNilItemsWithCursor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NextPage page2: %v", err)
 	}
-	if page2 == nil || len(page2) != 1 {
-		t.Fatalf("page2 = (%v), want 1 item", page2)
+	if page2 != nil {
+		t.Fatalf("page2 = %d items, want nil (empty page ends the walk)", len(page2))
 	}
-	if len(*reqs) != 2 {
-		t.Fatalf("made %d requests, want 2", len(*reqs))
+	if len(*reqs) != 1 {
+		t.Fatalf("made %d requests, want 1 (no continuation after an empty page)", len(*reqs))
 	}
 }
 

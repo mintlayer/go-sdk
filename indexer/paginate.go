@@ -87,7 +87,10 @@ func fail[T any](err error) *Pager[T] {
 // returns (nil, nil). Options and transport errors are returned as-is and are
 // retryable: a failed NextPage does not advance the walk. A fetched page is
 // normalized to a non-nil slice, so page == nil uniquely means the walk is
-// finished. Walk and NextPage share one consumption position, so they can be
+// finished. An empty fetched page also ends the walk: the api-server issues a
+// cursor only alongside items, so an empty page cannot legitimately continue
+// (this also bounds Walk against a non-compliant peer that never advances).
+// Walk and NextPage share one consumption position, so they can be
 // mixed on the same pager without duplicating or dropping items. The returned
 // slice aliases the pager's internal page buffer (Walk iterates over the same
 // backing array); callers must not modify it, and should treat it as valid
@@ -122,10 +125,13 @@ func (p *Pager[T]) NextPage(ctx context.Context) ([]T, error) {
 	}
 	p.items = items
 	p.pos = len(items) // the page is handed out whole via the return value
-	if next == nil || truncated || *next == "" {
+	if next == nil || truncated || *next == "" || len(items) == 0 {
 		// A server-issued empty cursor is not a continuation position (it would
 		// re-serve the first page forever); treat it as end-of-listing, matching
-		// the client-side WithCursor validation.
+		// the client-side WithCursor validation. An empty page likewise ends the
+		// walk: the api-server issues a cursor only alongside items, so an empty
+		// page with a cursor would mean a non-compliant peer — terminating
+		// instead of looping unboundedly.
 		p.done = true
 		p.cursor = nil
 	} else {
