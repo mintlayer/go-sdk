@@ -1,0 +1,23 @@
+{
+  "items": [
+    {
+      "pool_id": "pool_escrow1qzznn2pfsx4qr9vnsc3wm8xklj62fv2cldsd7ljmw6c3gcdm9a3374axkgz",
+      "decommission_destination": "address1q9li0gt3cycwvugy2gykstrskx525jldpqfu9sxxxx",
+      "staker_balance": { "atoms": "90000000000000", "decimal": "90000.000000000" },
+      "margin_ratio_per_thousand": "5000",
+      "cost_per_block": { "atoms": "100000000", "decimal": "0.100000000" },
+      "vrf_public_key": "033400000000000000000000000000000000000000000000000000000000000000aa",
+      "delegations_balance": { "atoms": "1000000000000", "decimal": "1000.000000000" }
+    },
+    {
+      "pool_id": "pool_escrow1qxyz2pfsx4qr9vnsc3wm8xklj62fv2cldsd7ljmw6c3gcdm9a3374a0000",
+      "decommission_destination": "address1q9li0gt3cycwvugy2gykstrskx525jldpqfu9s",
+      "staker_balance": { "atoms": "80000000000000", "decimal": "80000.000000000" },
+      "margin_ratio_per_thousand": "10000",
+      "cost_per_block": { "atoms": "50000000", "decimal": "0.050000000" },
+      "vrf_public_key": "0334000000000000000000000000000000000000000000000000000000000000bb",
+      "delegations_balance": { "atoms": "0", "decimal": "0.000000000" }
+    }
+  ],
+  "next_cursor": "pools-cursor-2"
+}

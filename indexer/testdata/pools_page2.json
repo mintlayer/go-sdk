@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "pool_id": "pool_escrow1qlast2pfsx4qr9vnsc3wm8xklj62fv2cldsd7ljmw6c3gcdm9a3374zzzz",
+      "decommission_destination": "address1q9li0gt3cycwvugy2gykstrskx525jldpqfu9syyyy",
+      "staker_balance": { "atoms": "70000000000000", "decimal": "70000.000000000" },
+      "margin_ratio_per_thousand": "0",
+      "cost_per_block": { "atoms": "10000000", "decimal": "0.010000000" },
+      "vrf_public_key": "0334000000000000000000000000000000000000000000000000000000000000cc",
+      "delegations_balance": { "atoms": "250000000000", "decimal": "250.000000000" }
+    }
+  ],
+  "next_cursor": null
+}

@@ -27,6 +27,84 @@ func (c *Client) ListPools(ctx context.Context, opts PoolListOpts) ([]Pool, erro
 	return result, nil
 }
 
+// poolsQuery renders the listing query for the cursor-paginated pools path.
+// Only the default creation-height sort (SortByHeight, the server default)
+// supports cursors: with any other sort value an explicit cursor is rejected
+// by the server with 400 "Bad request", which the SDK propagates. Without an
+// explicit cursor a non-default sort takes the offset-based path (bare array,
+// no cursor), so a walk over it ends after one page.
+func poolsQuery(p *listParams) url.Values {
+	forceCursor := p.cursor != "" || p.sort == "" || p.sort == SortByHeight
+	q := p.listQuery(forceCursor)
+	if p.sort != "" {
+		q.Set("sort", p.sort)
+	}
+	return q
+}
+
+// fetchPools fetches one page of the pools listing at p's cursor position.
+func (c *Client) fetchPools(ctx context.Context, p *listParams) ([]Pool, *string, bool, error) {
+	if err := p.reject("ListPoolsPage", paramSide|paramOffsetMode); err != nil {
+		return nil, nil, false, err
+	}
+	page, err := getPage[Pool](ctx, c, "/pool", poolsQuery(p))
+	return pageResult(page, err)
+}
+
+// ListPoolsPage returns one page of staking pools (newest creation height
+// first by default) as a cursor page; pass NextCursor to WithCursor (or use
+// PoolsPager) to continue the walk. Unlike ListPools, this method always uses
+// the cursor envelope (except for a non-default sort without an explicit
+// cursor — see WithSort).
+//
+// The default sort is the only cursor-compatible one: combining WithCursor
+// with WithSort(SortByPledge) is rejected by the server with 400 "Bad
+// request" and propagated as *HTTPError — only PoolsPager validates this
+// combination client-side (with a *RequestError), matching the api-server
+// contract this method mirrors.
+//
+// When WithOffset is set without a cursor, the cursor silently overrides the
+// offset page position server-side (items still applies); the SDK sends both
+// parameters and does not alter that behaviour.
+//
+// Page stability is only guaranteed once the indexer's scanner is fully caught
+// up; a walk during catch-up or a reorg may skip or repeat an entry.
+func (c *Client) ListPoolsPage(ctx context.Context, opts ...ListOption) (*CursorPage[Pool], error) {
+	p, err := applyListOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	items, next, _, err := c.fetchPools(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return &CursorPage[Pool]{Items: items, NextCursor: next}, nil
+}
+
+// PoolsPager returns a pager that walks the pools listing (newest creation
+// height first by default), following the server cursor automatically. The
+// walk only works with the default creation-height sort; see ListPoolsPage
+// and WithSort for the sort/cursor restriction.
+func PoolsPager(c *Client, opts ...ListOption) *Pager[Pool] {
+	p, err := applyListOptions(opts)
+	if err != nil {
+		return fail[Pool](err)
+	}
+	if err := p.reject("PoolsPager", paramSide|paramOffsetMode); err != nil {
+		return fail[Pool](err)
+	}
+	if p.sort != "" && p.sort != SortByHeight {
+		return fail[Pool](&RequestError{Option: "WithSort", Reason: "pools cursor walks require the default by_height sort; use ListPoolsPage for other sort orders"})
+	}
+	return NewPager(func(ctx context.Context, cursor *string) ([]Pool, *string, bool, error) {
+		fetch := p
+		if cursor != nil {
+			fetch = cloneParams(fetch, *cursor)
+		}
+		return c.fetchPools(ctx, fetch)
+	})
+}
+
 // GetPool returns a single staking pool by id (bech32).
 func (c *Client) GetPool(ctx context.Context, id string) (*Pool, error) {
 	var result Pool

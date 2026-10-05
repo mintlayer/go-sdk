@@ -1,0 +1,7 @@
+{
+  "items": [
+    { "address": "address1qcoinholder000000000000000000000000000000000000000aaaaaa", "amount": { "atoms": "1500000000000", "decimal": "1500.000000000" } },
+    { "address": "address1qcoinholder000000000000000000000000000000000000000bbbbbb", "amount": { "atoms": "1200000000000", "decimal": "1200.000000000" } }
+  ],
+  "next_cursor": "holders-cursor-2"
+}

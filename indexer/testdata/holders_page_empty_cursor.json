@@ -1,0 +1,9 @@
+{
+  "items": [
+    {
+      "address": "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx",
+      "amount": { "atoms": "1000000", "decimal": "0.01" }
+    }
+  ],
+  "next_cursor": ""
+}

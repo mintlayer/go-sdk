@@ -9,6 +9,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+#### Indexer client (`github.com/mintlayer/go-sdk/indexer`)
+
+Cursor pagination for the api-server v2 endpoints introduced in mintlayer-core PR #2130 (api-server 1.4.1):
+
+- **Pools**: `ListPoolsPage` and `PoolsPager` — cursor envelope over `/v2/pool`; cursors work only with the default `by_height` sort. On `ListPoolsPage` any other sort with a cursor is a server 400 `Bad request`, propagated as `*HTTPError` (api-server contract); `PoolsPager` rejects the same combination client-side with a `*RequestError`.
+- **Transactions**: `ListTransactionsPage` and `TransactionsPager` — cursor envelope over the global listing (newest block first, transactions in block order within each block); `WithOffsetMode("legacy"|"absolute")` selects the offset-based listing instead, and cursor + `offset_mode` is rejected client-side with a `*RequestError`. `Transaction.BlockID` is documented as the confirming block's hash (empty for mempool transactions).
+- **Holders**: `ListCoinHolders`, `ListTokenHolders`, `CoinHoldersPager`, `TokenHoldersPager`, and the `Holder` type (address + amount; token ids are exact case-sensitive bech32, unknown ids are 404 `Token not found`).
+- **Order book**: `GetOrderBook`, `OrderBookPager`, and the `OrderBookPage`/`OrderBookLevel`/`OrderBookPrice` types — aggregated price levels (exact reduced-rational price plus floored decimal rendering) per side; required `WithSide`, side-specific cursors, and the truncation invariant (`Truncated` true ⇒ `NextCursor` nil at the server's `OrderBookMaxOrders` = 10000-order cap; the paginator stops there).
+- **Shared paginator**: generic `Pager[T]` (`NewPager`, `NextPage`, `Walk`, `NextCursor`, `Truncated`) and the `CursorPage[T]` `{items, next_cursor}` envelope; pre-1.4.1 bare-array responses are accepted and wrapped, a server-issued empty cursor is treated as end-of-listing, an empty fetched page ends the walk (the api-server issues a cursor only alongside items), and `NextPage` never loses the unserved remainder of a partially consumed page.
+- **List options**: `WithItems` (validated 1..=100 = `MaxNumItems`; the server rejects `items=0` on every paginated endpoint), `WithOffset`, `WithCursor` (opaque, non-empty; never constructed client-side), `WithSort`, `WithOffsetMode`, `WithSide`; inapplicable options fail client-side with `*RequestError` — the single-page methods at call time, the cursor pagers at construction time (`PoolsPager` rejects non-default sorts, `TransactionsPager` rejects `WithOffsetMode`).
+- **Typed errors**: `HTTPError.Message`/`HTTPError.Kind` populated from the server's `{"error": ...}` body, `ErrorKind` classification, and an `errors.Is` sentinel for every well-known server error (`ErrInvalidCursor`, `ErrInvalidNumItems`, `ErrTokenNotFound`, `ErrBadRequest`, `ErrInvalidOffsetMode`, `ErrInvalidPoolsSortOrder`, `ErrInvalidTokenID`, `ErrInvalidOrderPair`).
+
+Documented semantics: page stability is only guaranteed once the indexer's scanner is fully caught up (walks during catch-up/reorgs may skip or repeat entries); offset-based listings remain unchanged as the simple alternative for shallow listings; on pools/holders/order book a cursor silently overrides the offset page position server-side.
+
+Docs and examples: README indexer section, `docs/indexer.md` (cursor pagination guide, holders/order book reference, error table), and the runnable `examples/indexer-paging`.
+
 ---
 
 ## [0.1.0] — 2026-04-16
