@@ -172,7 +172,7 @@ Returns a paginated list of confirmed transactions across the entire chain, orde
 func (c *Client) ListTransactionsPage(ctx context.Context, opts ...ListOption) (*CursorPage[Transaction], error)
 ```
 
-One page of the global transaction listing as a cursor envelope; pass `NextCursor` to `WithCursor` (or use `TransactionsPager`) to continue the walk. `WithOffsetMode("legacy"|"absolute")` selects the offset-based listing instead, which has no cursors (such a page arrives with a nil `NextCursor`). Combining a cursor with `offset_mode` is rejected client-side with a `*RequestError`. Per-block transaction listings remain offset-based (see `GetBlockTransactionIDs`).
+One page of the global transaction listing as a cursor envelope; pass `NextCursor` to `WithCursor` (or use `TransactionsPager`) to continue the walk. `WithOffsetMode("legacy"|"absolute")` selects the offset-based listing instead, which has no cursors (such a page arrives with a nil `NextCursor`). Combining a cursor with `offset_mode` is rejected client-side with a `*RequestError`. In the default (cursor) mode the cursor parameter is always present (empty on a first page), so the server silently overrides the `WithOffset` page position with the cursor (`items` still applies) — use `WithOffsetMode` for offset-based pages. Per-block transaction listings remain offset-based (see `GetBlockTransactionIDs`).
 
 ### `TransactionsPager`
 

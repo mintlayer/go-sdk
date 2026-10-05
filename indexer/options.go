@@ -96,10 +96,11 @@ func WithItems(items uint32) ListOption {
 }
 
 // WithOffset sets the offset of an offset-based listing. Only the transaction
-// listing and the pools listing still honour an offset when no cursor is used;
-// everywhere else the cursor defines the page position server-side and the
-// offset is ignored (items still applies). The SDK sends both parameters
-// as-is and does not second-guess the server.
+// listing in offset_mode (WithOffsetMode) and the pools listing with a
+// non-default sort still honour an offset; everywhere else the cursor defines
+// the page position server-side and the offset is ignored (items still
+// applies). The SDK sends both parameters as-is and does not second-guess the
+// server.
 func WithOffset(offset uint64) ListOption {
 	return func(p *listParams) error {
 		p.offset = offset

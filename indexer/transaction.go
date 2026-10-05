@@ -24,8 +24,10 @@ func (c *Client) ListTransactions(ctx context.Context, opts PageOpts) ([]Transac
 
 // transactionsQuery renders the listing query for the global transaction path.
 // offset_mode selects the offset-based listing (no cursors); a cursor combined
-// with offset_mode is rejected by the server with 400 "Bad request", which the
-// SDK propagates when an explicit cursor is requested alongside it.
+// with offset_mode is rejected client-side by fetchTransactions. Without
+// offset_mode the request takes the cursor path (cursor param present, empty
+// when unset), so a WithOffset position is silently overridden server-side —
+// documented on ListTransactionsPage.
 func transactionsQuery(p *listParams) url.Values {
 	forceCursor := p.cursor != "" || p.offsetMode == ""
 	q := p.listQuery(forceCursor)
@@ -56,8 +58,11 @@ func (c *Client) fetchTransactions(ctx context.Context, p *listParams) ([]Transa
 // Combining WithCursor with WithOffsetMode is rejected client-side with a
 // *RequestError. WithOffsetMode (legacy or absolute) selects the
 // offset-based listing instead, which has no cursors — such a page arrives as
-// a bare array and is returned with a nil NextCursor. Per-block transaction
-// listings remain offset-based (see the block endpoints).
+// a bare array and is returned with a nil NextCursor. In the default (cursor)
+// mode the cursor parameter is always present (empty on a first page), and the
+// server silently overrides the WithOffset page position with the cursor — use
+// WithOffsetMode for offset-based pages. Per-block transaction listings remain
+// offset-based (see the block endpoints).
 //
 // Page stability is only guaranteed once the indexer's scanner is fully caught
 // up; a walk during catch-up or a reorg may skip or repeat an entry.
