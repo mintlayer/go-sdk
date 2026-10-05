@@ -51,10 +51,23 @@ const (
 //
 //	if errors.Is(err, indexer.ErrInvalidCursor) { ... }
 var (
+	// ErrBadRequest matches 400 "Bad request" responses (e.g. an invalid
+	// option combination the SDK forwards, such as a pools cursor with a
+	// non-default sort).
+	ErrBadRequest = errors.New("bad request")
 	// ErrInvalidCursor matches 400 "Invalid cursor" responses.
 	ErrInvalidCursor = errors.New("invalid cursor")
 	// ErrInvalidNumItems matches 400 "Invalid number of items" responses.
 	ErrInvalidNumItems = errors.New("invalid number of items")
+	// ErrInvalidOffsetMode matches 400 "Invalid offset mode" responses.
+	ErrInvalidOffsetMode = errors.New("invalid offset mode")
+	// ErrInvalidPoolsSortOrder matches 400 "Invalid pools sort order"
+	// responses.
+	ErrInvalidPoolsSortOrder = errors.New("invalid pools sort order")
+	// ErrInvalidTokenID matches 400 "Invalid token Id" responses.
+	ErrInvalidTokenID = errors.New("invalid token id")
+	// ErrInvalidOrderPair matches 400 "Invalid order trading pair" responses.
+	ErrInvalidOrderPair = errors.New("invalid order trading pair")
 	// ErrTokenNotFound matches 404 "Token not found" responses.
 	ErrTokenNotFound = errors.New("token not found")
 )
@@ -71,17 +84,28 @@ func (e *RequestError) Error() string {
 }
 
 // Is maps an *HTTPError onto the sentinel errors declared in this package, so
-// that errors.Is works across the typed error surface:
+// that errors.Is works across the typed error surface — every ErrorKind other
+// than ErrorKindOther has a matching sentinel:
 //
 //	errors.Is(err, indexer.ErrInvalidCursor)
 //	errors.Is(err, indexer.ErrInvalidNumItems)
 //	errors.Is(err, indexer.ErrTokenNotFound)
 func (e *HTTPError) Is(target error) bool {
 	switch target {
+	case ErrBadRequest:
+		return e.Kind == ErrorKindBadRequest
 	case ErrInvalidCursor:
 		return e.Kind == ErrorKindInvalidCursor
 	case ErrInvalidNumItems:
 		return e.Kind == ErrorKindInvalidNumItems
+	case ErrInvalidOffsetMode:
+		return e.Kind == ErrorKindInvalidOffsetMode
+	case ErrInvalidPoolsSortOrder:
+		return e.Kind == ErrorKindInvalidPoolsSortOrder
+	case ErrInvalidTokenID:
+		return e.Kind == ErrorKindInvalidTokenID
+	case ErrInvalidOrderPair:
+		return e.Kind == ErrorKindInvalidOrderPair
 	case ErrTokenNotFound:
 		return e.Kind == ErrorKindTokenNotFound
 	}

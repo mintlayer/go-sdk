@@ -88,7 +88,10 @@ func fail[T any](err error) *Pager[T] {
 // retryable: a failed NextPage does not advance the walk. A fetched page is
 // normalized to a non-nil slice, so page == nil uniquely means the walk is
 // finished. Walk and NextPage share one consumption position, so they can be
-// mixed on the same pager without duplicating or dropping items.
+// mixed on the same pager without duplicating or dropping items. The returned
+// slice aliases the pager's internal page buffer (Walk iterates over the same
+// backing array); callers must not modify it, and should treat it as valid
+// only until the next call on the pager.
 func (p *Pager[T]) NextPage(ctx context.Context) ([]T, error) {
 	if p.failed != nil {
 		return nil, p.failed

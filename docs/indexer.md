@@ -652,18 +652,18 @@ type HTTPError struct {
 }
 ```
 
-The api-server's well-known error messages map to `ErrorKind` values, three of which have sentinel errors for `errors.Is`. Matching is gated on the documented status code (400 for the client errors, 404 for the token lookup): the same message arriving under an unexpected status degrades to `ErrorKindOther` and does not match the sentinel.
+Every well-known api-server error message maps to an `ErrorKind` value with a matching sentinel for `errors.Is` (`ErrorKindOther` is the only kind without one). Matching is gated on the documented status code (400 for the client errors, 404 for the token lookup): the same message arriving under an unexpected status degrades to `ErrorKindOther` and does not match the sentinel.
 
 | Server response | Kind | Sentinel |
 |---|---|---|
 | 400 `Invalid cursor` | `ErrorKindInvalidCursor` | `indexer.ErrInvalidCursor` |
 | 400 `Invalid number of items` | `ErrorKindInvalidNumItems` | `indexer.ErrInvalidNumItems` |
 | 404 `Token not found` | `ErrorKindTokenNotFound` | `indexer.ErrTokenNotFound` |
-| 400 `Bad request` | `ErrorKindBadRequest` | — |
-| 400 `Invalid offset mode` | `ErrorKindInvalidOffsetMode` | — |
-| 400 `Invalid pools sort order` | `ErrorKindInvalidPoolsSortOrder` | — |
-| 400 `Invalid token Id` | `ErrorKindInvalidTokenID` | — |
-| 400 `Invalid order trading pair` | `ErrorKindInvalidOrderPair` | — |
+| 400 `Bad request` | `ErrorKindBadRequest` | `indexer.ErrBadRequest` |
+| 400 `Invalid offset mode` | `ErrorKindInvalidOffsetMode` | `indexer.ErrInvalidOffsetMode` |
+| 400 `Invalid pools sort order` | `ErrorKindInvalidPoolsSortOrder` | `indexer.ErrInvalidPoolsSortOrder` |
+| 400 `Invalid token Id` | `ErrorKindInvalidTokenID` | `indexer.ErrInvalidTokenID` |
+| 400 `Invalid order trading pair` | `ErrorKindInvalidOrderPair` | `indexer.ErrInvalidOrderPair` |
 
 ```go
 holders, err := c.ListTokenHolders(ctx, tokenID)

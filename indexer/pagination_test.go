@@ -554,11 +554,11 @@ func TestTypedErrorShapes(t *testing.T) {
 	}{
 		{"invalid cursor", 400, `{"error":"Invalid cursor"}`, indexer.ErrorKindInvalidCursor, indexer.ErrInvalidCursor},
 		{"invalid num items", 400, `{"error":"Invalid number of items"}`, indexer.ErrorKindInvalidNumItems, indexer.ErrInvalidNumItems},
-		{"bad request", 400, `{"error":"Bad request"}`, indexer.ErrorKindBadRequest, nil},
-		{"invalid offset mode", 400, `{"error":"Invalid offset mode"}`, indexer.ErrorKindInvalidOffsetMode, nil},
-		{"invalid pools sort", 400, `{"error":"Invalid pools sort order"}`, indexer.ErrorKindInvalidPoolsSortOrder, nil},
-		{"invalid token id", 400, `{"error":"Invalid token Id"}`, indexer.ErrorKindInvalidTokenID, nil},
-		{"invalid order pair", 400, `{"error":"Invalid order trading pair"}`, indexer.ErrorKindInvalidOrderPair, nil},
+		{"bad request", 400, `{"error":"Bad request"}`, indexer.ErrorKindBadRequest, indexer.ErrBadRequest},
+		{"invalid offset mode", 400, `{"error":"Invalid offset mode"}`, indexer.ErrorKindInvalidOffsetMode, indexer.ErrInvalidOffsetMode},
+		{"invalid pools sort", 400, `{"error":"Invalid pools sort order"}`, indexer.ErrorKindInvalidPoolsSortOrder, indexer.ErrInvalidPoolsSortOrder},
+		{"invalid token id", 400, `{"error":"Invalid token Id"}`, indexer.ErrorKindInvalidTokenID, indexer.ErrInvalidTokenID},
+		{"invalid order pair", 400, `{"error":"Invalid order trading pair"}`, indexer.ErrorKindInvalidOrderPair, indexer.ErrInvalidOrderPair},
 		{"token not found", 404, `{"error":"Token not found"}`, indexer.ErrorKindTokenNotFound, indexer.ErrTokenNotFound},
 		{"unrecognised body", 500, `{"error":"boom"}`, indexer.ErrorKindOther, nil},
 	}

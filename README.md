@@ -185,7 +185,7 @@ order, err := c.GetOrder(ctx, "order1...")
 stats, err := c.GetCoinStatistics(ctx)
 ```
 
-Non-2xx responses are returned as `*indexer.HTTPError` with a `StatusCode` field. The well-known api-server v2 errors are classified in `Kind` and match the `ErrInvalidCursor`, `ErrInvalidNumItems`, and `ErrTokenNotFound` sentinels via `errors.Is`; invalid option values fail client-side with `*indexer.RequestError`.
+Non-2xx responses are returned as `*indexer.HTTPError` with a `StatusCode` field. Every well-known api-server v2 error is classified in `Kind` and has a sentinel (e.g. `ErrInvalidCursor`, `ErrInvalidNumItems`, `ErrTokenNotFound`) matched via `errors.Is`; invalid option values fail client-side with `*indexer.RequestError`.
 
 ---
 
@@ -378,6 +378,6 @@ Pass the network constant to any function that derives addresses or encodes tran
 
 - `node.RPCError` — JSON-RPC error from the node daemon (`Code`, `Message`)
 - `wallet.RPCError` — JSON-RPC error from the wallet daemon
-- `indexer.HTTPError` — non-2xx HTTP response from the indexer (`StatusCode`, `Body`, `Message`, `Kind`); `errors.Is` matches the `indexer.ErrInvalidCursor` / `indexer.ErrInvalidNumItems` / `indexer.ErrTokenNotFound` sentinels
+- `indexer.HTTPError` — non-2xx HTTP response from the indexer (`StatusCode`, `Body`, `Message`, `Kind`); every `Kind` other than `ErrorKindOther` has an `errors.Is` sentinel (e.g. `indexer.ErrInvalidCursor`, `indexer.ErrInvalidNumItems`, `indexer.ErrTokenNotFound`)
 - `indexer.RequestError` — request rejected client-side before it was sent (invalid `WithItems`/`WithCursor`/`WithSide`/… value or combination), with `Option` and `Reason`
 - WASM errors are plain `error` values with a descriptive message prefixed by `mintlayer:`.
